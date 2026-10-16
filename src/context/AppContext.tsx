@@ -10,6 +10,7 @@ import {
   PortalSettings,
   User,
   RubricSection,
+  ProblemItem,
 } from '../types/index.ts';
 import {
   SEED_ASSESSMENTS,
@@ -21,6 +22,7 @@ import {
   SEED_AUDIT_LOGS,
   DEFAULT_SETTINGS,
   SEED_USERS,
+  SEED_PROBLEMS,
 } from '../data/seedData.ts';
 import { SUPPORT_RUBRIC, SALES_RUBRIC } from '../utils/scoring.ts';
 
@@ -42,6 +44,7 @@ interface AppContextType {
   setActiveTab: (tab: string) => void;
 
   assessments: Assessment[];
+  allAssessments: Assessment[];
   agents: Agent[];
   faults: Fault[];
   teams: Team[];
@@ -49,6 +52,7 @@ interface AppContextType {
   teamLeads: typeof SEED_TEAM_LEADS;
   auditLogs: AuditLog[];
   settings: PortalSettings;
+  problems: ProblemItem[];
 
   // Rubrics with versioning
   supportRubric: RubricSection[];
@@ -59,6 +63,7 @@ interface AppContextType {
   addAssessment: (assessment: Omit<Assessment, 'id' | 'created_at'>) => Assessment;
   updateAssessment: (id: string, updates: Partial<Assessment>) => void;
   deleteAssessment: (id: string) => void;
+  restoreAssessment: (id: string) => void;
 
   // Team Lead review
   markTeamLeadReviewed: (assessmentId: string, note: string) => void;
@@ -85,6 +90,7 @@ interface AppContextType {
 
   // Settings & Rubric editing
   updateRubricItemWeight: (formType: DepartmentType, itemId: string, newWeight: number) => void;
+  updateFullRubric: (formType: DepartmentType, sections: RubricSection[]) => { success: boolean; error?: string };
   updateSettings: (newSettings: Partial<PortalSettings>) => void;
 
   // Roster / Fault management
@@ -92,6 +98,19 @@ interface AppContextType {
   updateAgent: (id: string, updates: Partial<Agent>) => void;
   addFault: (fault: Omit<Fault, 'id'>) => void;
   updateFault: (id: string, updates: Partial<Fault>) => void;
+  deleteFault: (id: string) => void;
+
+  // Problems Tracker
+  addProblem: (problem: Omit<ProblemItem, 'id' | 'created_at'>) => void;
+  updateProblem: (id: string, updates: Partial<ProblemItem>) => void;
+  deleteProblem: (id: string) => void;
+
+  // Auth & Login
+  isAuthenticated: boolean;
+  showLoginModal: boolean;
+  setShowLoginModal: (show: boolean) => void;
+  login: (user: User) => void;
+  logout: () => void;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -107,6 +126,8 @@ const STORAGE_KEYS = {
   SUPPORT_RUBRIC: 'snappfood_qa_rubric_support_v2',
   SALES_RUBRIC: 'snappfood_qa_rubric_sales_v2',
   VERSIONS: 'snappfood_qa_versions_v2',
+  PROBLEMS: 'snappfood_qa_problems_v2',
+  ACTIVE_USER: 'snappfood_qa_active_user_v2',
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -114,6 +135,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saved = localStorage.getItem(STORAGE_KEYS.ROLE);
     return (saved as UserRole) || 'qa_controller';
   });
+
+  const [activeUser, setActiveUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.ACTIVE_USER);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {}
+    }
+    return null;
+  });
+
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
+  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
 
   const [currentAgentId, setCurrentAgentId] = useState<string>('agent-3718'); // Mahya Mamizadeh default
   const [currentTeamLeadId, setCurrentTeamLeadId] = useState<string>('negin');
@@ -178,12 +212,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
     if (saved) {
       try {
-        return JSON.parse(saved);
+        return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
       } catch (e) {
         console.error('Error loading settings', e);
       }
     }
     return DEFAULT_SETTINGS;
+  });
+
+  const [problems, setProblems] = useState<ProblemItem[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.PROBLEMS);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Error loading problems', e);
+      }
+    }
+    return SEED_PROBLEMS;
   });
 
   const [supportRubric, setSupportRubric] = useState<RubricSection[]>(() => {
@@ -211,17 +257,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Current logged in user object based on active role
   const currentUser: User = (() => {
+    if (activeUser && activeUser.role === role) return activeUser;
     const u = SEED_USERS.find((item) => item.role === role);
     return (
       u || {
         id: `usr-${role}`,
         username: role,
-        name: role === 'agent' ? 'کارشناس' : 'کاربر سیستم',
+        name: role === 'agent' ? 'کارشناس عملیات' : 'کاربر سیستم',
         role,
         active: true,
       }
     );
   })();
+
+  const login = (user: User) => {
+    setActiveUser(user);
+    setRoleState(user.role);
+    setIsAuthenticated(true);
+    setShowLoginModal(false);
+    localStorage.setItem(STORAGE_KEYS.ACTIVE_USER, JSON.stringify(user));
+    localStorage.setItem(STORAGE_KEYS.ROLE, user.role);
+
+    addAuditLogEntry(
+      'settings',
+      user.id,
+      'create',
+      'user_session',
+      undefined,
+      `ورود موفق کاربر: ${user.name} (${user.role})`
+    );
+  };
+
+  const logout = () => {
+    setActiveUser(null);
+    setIsAuthenticated(false);
+    localStorage.removeItem(STORAGE_KEYS.ACTIVE_USER);
+    setShowLoginModal(true);
+  };
 
   // Keep theme class synced on <html>
   useEffect(() => {
@@ -254,6 +326,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
   }, [settings]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.PROBLEMS, JSON.stringify(problems));
+  }, [problems]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.SUPPORT_RUBRIC, JSON.stringify(supportRubric));
@@ -302,7 +378,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       field,
       old_value,
       new_value,
-      created_at: new Date().toLocaleDateString('fa-IR') + ' ' + new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
+      created_at:
+        new Date().toLocaleDateString('fa-IR') +
+        ' ' +
+        new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
     };
     setAuditLogs((prev) => [log, ...prev]);
   };
@@ -331,7 +410,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateAssessment = (id: string, updates: Partial<Assessment>) => {
     const current = assessments.find((a) => a.id === id);
     setAssessments((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, ...updates, updated_at: new Date().toISOString() } : item))
+      prev.map((item) =>
+        item.id === id ? { ...item, ...updates, updated_at: new Date().toISOString() } : item
+      )
     );
 
     if (current) {
@@ -350,13 +431,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const target = assessments.find((a) => a.id === id);
     // Soft delete
     setAssessments((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, deleted_at: new Date().toISOString() } : item))
+      prev.map((item) =>
+        item.id === id ? { ...item, deleted_at: new Date().toISOString() } : item
+      )
     );
 
-    addAuditLogEntry('assessment', id, 'delete', 'deleted_at', undefined, 'حذف ارزیابی (Soft Delete)');
+    addAuditLogEntry(
+      'assessment',
+      id,
+      'delete',
+      'deleted_at',
+      target?.total_score ? `نمره: ${target.total_score}` : undefined,
+      'حذف ارزیابی (Soft Delete)'
+    );
+  };
+
+  const restoreAssessment = (id: string) => {
+    setAssessments((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, deleted_at: null } : item))
+    );
+
+    addAuditLogEntry('assessment', id, 'update', 'deleted_at', 'deleted', 'بازیابی ارزیابی حذف‌شده');
   };
 
   const markTeamLeadReviewed = (assessmentId: string, note: string) => {
+    const target = assessments.find((a) => a.id === assessmentId);
     updateAssessment(assessmentId, {
       result: 'بررسی شده',
       team_lead_reviewed: true,
@@ -369,8 +468,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       assessmentId,
       'team_lead_reviewed',
       'team_lead_note',
-      undefined,
-      note
+      target?.result,
+      `بررسی شده: ${note}`
     );
   };
 
@@ -388,7 +487,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const dispute = {
       id: `disp-${Date.now().toString().slice(-4)}`,
       status: 'pending' as const,
-      created_at: new Date().toLocaleDateString('fa-IR') + ' ' + new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
+      created_at:
+        new Date().toLocaleDateString('fa-IR') +
+        ' ' +
+        new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
       agent_id: target.agent_id,
       agent_name: currentAgent?.name || 'کارشناس',
       criterion_id: criterionId,
@@ -418,21 +520,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const target = assessments.find((a) => a.id === assessmentId);
     if (!target || !target.dispute) return;
 
+    const finalScore =
+      status === 'resolved' && revisedScore !== undefined ? revisedScore : target.total_score;
+
     const updatedDispute = {
       ...target.dispute,
       status,
       controller_id: currentUser.username,
       controller_comment: controllerComment,
       resolved_at: new Date().toLocaleDateString('fa-IR'),
-      revised_score: status === 'resolved' && revisedScore !== undefined ? revisedScore : target.total_score,
+      revised_score: finalScore,
     };
 
-    const finalScore =
-      status === 'resolved' && revisedScore !== undefined ? revisedScore : target.total_score;
+    // If score was revised, also update the criterion item score in rubric scores if matching
+    let updatedSupportScores = target.support_scores;
+    let updatedSalesScores = target.sales_scores;
+    const critId = target.dispute.criterion_id;
+
+    if (status === 'resolved' && critId && critId !== 'general') {
+      if (target.form_type === 'support' && updatedSupportScores) {
+        updatedSupportScores = { ...updatedSupportScores, [critId]: 5 }; // restored
+      } else if (target.form_type === 'sales' && updatedSalesScores) {
+        updatedSalesScores = { ...updatedSalesScores, [critId]: 5 };
+      }
+    }
 
     updateAssessment(assessmentId, {
       dispute: updatedDispute,
       total_score: finalScore,
+      support_scores: updatedSupportScores,
+      sales_scores: updatedSalesScores,
     });
 
     addAuditLogEntry(
@@ -441,7 +558,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status === 'resolved' ? 'dispute_resolved' : 'dispute_rejected',
       'revised_score',
       `${target.total_score}`,
-      `${finalScore} (${controllerComment})`
+      `نمره اصلاح‌شده: ${finalScore} | نظر کنترلر: ${controllerComment}`
     );
   };
 
@@ -453,6 +570,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.removeItem(STORAGE_KEYS.SETTINGS);
     localStorage.removeItem(STORAGE_KEYS.SUPPORT_RUBRIC);
     localStorage.removeItem(STORAGE_KEYS.SALES_RUBRIC);
+    localStorage.removeItem(STORAGE_KEYS.PROBLEMS);
+    localStorage.removeItem(STORAGE_KEYS.ACTIVE_USER);
+
     setAssessments(SEED_ASSESSMENTS);
     setAgents(SEED_AGENTS);
     setFaults(SEED_FAULTS);
@@ -460,32 +580,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSettings(DEFAULT_SETTINGS);
     setSupportRubric(SUPPORT_RUBRIC);
     setSalesRubric(SALES_RUBRIC);
+    setProblems(SEED_PROBLEMS);
+    setActiveUser(null);
   };
 
-  const exportDataToJson = (): string => {
-    const exportData = {
-      version: '2.0',
-      exported_at: new Date().toISOString(),
+  const exportDataToJson = () => {
+    const data = {
       assessments,
       agents,
       faults,
       auditLogs,
       settings,
+      problems,
+      supportRubric,
+      salesRubric,
     };
-    return JSON.stringify(exportData, null, 2);
+    return JSON.stringify(data, null, 2);
   };
 
   const importDataFromJson = (jsonStr: string): boolean => {
     try {
-      const parsed = JSON.parse(jsonStr);
-      if (Array.isArray(parsed.assessments)) setAssessments(parsed.assessments);
-      if (Array.isArray(parsed.agents)) setAgents(parsed.agents);
-      if (Array.isArray(parsed.faults)) setFaults(parsed.faults);
-      if (Array.isArray(parsed.auditLogs)) setAuditLogs(parsed.auditLogs);
-      if (parsed.settings) setSettings(parsed.settings);
+      const data = JSON.parse(jsonStr);
+      if (data.assessments) setAssessments(data.assessments);
+      if (data.agents) setAgents(data.agents);
+      if (data.faults) setFaults(data.faults);
+      if (data.settings) setSettings(data.settings);
+      if (data.problems) setProblems(data.problems);
+      if (data.supportRubric) setSupportRubric(data.supportRubric);
+      if (data.salesRubric) setSalesRubric(data.salesRubric);
       return true;
-    } catch (err) {
-      console.error('Import failed', err);
+    } catch (e) {
+      console.error(e);
       return false;
     }
   };
@@ -495,58 +620,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     dryRun: boolean
   ): { success: boolean; count: number; errors: string[] } => {
     const lines = csvText.trim().split('\n');
-    if (lines.length <= 1) {
-      return { success: false, count: 0, errors: ['فایل خالی است یا فقط هدر دارد'] };
+    if (lines.length < 2) {
+      return { success: false, count: 0, errors: ['فایل فاقد ردیف‌های داده است'] };
     }
 
     const errors: string[] = [];
-    const validAgents: Agent[] = [];
+    const newAgents: Agent[] = [];
 
-    // Header: Agent, Source, Team, Operator panel, Controller, Team Leads, Minimum review
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
+    lines.slice(1).forEach((line, index) => {
       const parts = line.split(',').map((p) => p.trim().replace(/^"|"$/g, ''));
-      if (parts.length < 2) {
-        errors.push(`سطر ${i + 1}: داده‌های ناکافی`);
-        continue;
+      if (parts.length < 3) {
+        errors.push(`ردیف ${index + 2}: تعداد ستون‌ها ناکافی است`);
+        return;
       }
 
-      const [name, source_id, team, operator_panel, controller, team_lead, min_reviews] = parts;
+      const [name, source_id, team, dept, lead, controller, panel, sample, process, minReviews] = parts;
       if (!name || !source_id) {
-        errors.push(`سطر ${i + 1}: نام یا کد سورس کارشناس خالی است`);
-        continue;
+        errors.push(`ردیف ${index + 2}: نام کارشناس یا کد سورس خالی است`);
+        return;
       }
 
-      const department: DepartmentType =
-        team && ['Technical', 'Content', 'General'].includes(team) ? 'support' : 'sales';
-
-      validAgents.push({
+      newAgents.push({
         id: `agent-${source_id}`,
         name,
         source_id,
         team: team || 'General',
-        department,
-        team_lead: team_lead || 'حسین جدیری',
+        department: dept === 'support' || dept === 'پشتیبانی' ? 'support' : 'sales',
+        team_lead: lead || 'نگین رضایی',
         controller: controller || 'meysam',
-        operator_panel: operator_panel || 'CRM Sales',
-        min_monthly_reviews: parseInt(min_reviews, 10) || 40,
+        operator_panel: panel || 'Ring',
+        sample_name: sample || 'Random Sampling',
+        check_process: process || 'if needed',
+        min_monthly_reviews: Number(minReviews) || 40,
         active: true,
       });
+    });
+
+    if (errors.length > 0 && newAgents.length === 0) {
+      return { success: false, count: 0, errors };
     }
 
-    if (!dryRun && validAgents.length > 0) {
+    if (!dryRun) {
       setAgents((prev) => {
-        const merged = [...prev];
-        validAgents.forEach((va) => {
-          const idx = merged.findIndex((a) => a.source_id === va.source_id);
-          if (idx >= 0) {
-            merged[idx] = va;
-          } else {
-            merged.push(va);
-          }
-        });
-        return merged;
+        const existingIds = new Set(prev.map((a) => a.source_id));
+        const filteredNew = newAgents.filter((a) => !existingIds.has(a.source_id));
+        return [...prev, ...filteredNew];
       });
 
       addAuditLogEntry(
@@ -555,31 +673,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'create',
         'csv_import',
         undefined,
-        `ورود ${validAgents.length} کارشناس از فایل CSV`
+        `ایمپورت ${newAgents.length} کارشناس از فایل CSV`
       );
     }
 
-    return {
-      success: errors.length === 0,
-      count: validAgents.length,
-      errors,
-    };
+    return { success: true, count: newAgents.length, errors };
   };
 
-  const updateRubricItemWeight = (
-    formType: DepartmentType,
-    itemId: string,
-    newWeight: number
-  ) => {
+  const updateRubricItemWeight = (formType: DepartmentType, itemId: string, newWeight: number) => {
     if (formType === 'support') {
       setSupportRubric((prev) =>
         prev.map((sec) => ({
           ...sec,
           criteria: sec.criteria.map((crit) => ({
             ...crit,
-            items: crit.items.map((item) =>
-              item.id === itemId ? { ...item, maxPoints: newWeight } : item
-            ),
+            items: crit.items.map((it) => (it.id === itemId ? { ...it, maxPoints: newWeight } : it)),
           })),
         }))
       );
@@ -590,9 +698,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ...sec,
           criteria: sec.criteria.map((crit) => ({
             ...crit,
-            items: crit.items.map((item) =>
-              item.id === itemId ? { ...item, maxPoints: newWeight } : item
-            ),
+            items: crit.items.map((it) => (it.id === itemId ? { ...it, maxPoints: newWeight } : it)),
           })),
         }))
       );
@@ -605,8 +711,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       'update',
       'maxPoints',
       undefined,
-      `وزن جدید: ${newWeight} (ارتقای نسخه فرم به ۲)`
+      `وزن جدید: ${newWeight} (ارتقای نسخه فرم)`
     );
+  };
+
+  const updateFullRubric = (
+    formType: DepartmentType,
+    sections: RubricSection[]
+  ): { success: boolean; error?: string } => {
+    const totalMax = sections.reduce((sum, s) => sum + s.maxPoints, 0);
+    if (totalMax !== 100) {
+      return {
+        success: false,
+        error: `مجموع سقف نمرات بخش‌ها برابر ${totalMax} است. مجموع کل نمرات باید دقیقاً ۱۰۰ باشد.`,
+      };
+    }
+
+    if (formType === 'support') {
+      setSupportRubric(sections);
+      setSupportFormVersion((v) => v + 1);
+    } else {
+      setSalesRubric(sections);
+      setSalesFormVersion((v) => v + 1);
+    }
+
+    addAuditLogEntry(
+      'rubric',
+      formType,
+      'rubric_updated',
+      'sections',
+      undefined,
+      `بروزرسانی رابریک ${formType === 'support' ? 'پشتیبانی' : 'فروش'} و ارتقای نسخه فرم`
+    );
+
+    return { success: true };
   };
 
   const updateSettings = (newSettings: Partial<PortalSettings>) => {
@@ -614,7 +752,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addAuditLogEntry(
       'settings',
       'portal_config',
-      'update',
+      'settings_updated',
       Object.keys(newSettings).join(', '),
       undefined,
       JSON.stringify(newSettings)
@@ -627,14 +765,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `agent-${newAgent.source_id || Date.now().toString().slice(-4)}`,
     };
     setAgents((prev) => [...prev, agent]);
-    addAuditLogEntry('agent', agent.id, 'create', 'agent_roster', undefined, `${agent.name} (${agent.source_id})`);
+    addAuditLogEntry(
+      'agent',
+      agent.id,
+      'create',
+      'agent_roster',
+      undefined,
+      `${agent.name} (کد: ${agent.source_id} | تیم: ${agent.team})`
+    );
   };
 
   const updateAgent = (id: string, updates: Partial<Agent>) => {
-    setAgents((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, ...updates } : a))
+    const prevAgent = agents.find((a) => a.id === id);
+    setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, ...updates } : a)));
+    addAuditLogEntry(
+      'agent',
+      id,
+      'update',
+      Object.keys(updates).join(', '),
+      prevAgent?.name,
+      updates.name || 'ویرایش مشخصات'
     );
-    addAuditLogEntry('agent', id, 'update', Object.keys(updates).join(', '));
   };
 
   const addFault = (newFault: Omit<Fault, 'id'>) => {
@@ -647,10 +798,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateFault = (id: string, updates: Partial<Fault>) => {
-    setFaults((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, ...updates } : f))
-    );
+    setFaults((prev) => prev.map((f) => (f.id === id ? { ...f, ...updates } : f)));
     addAuditLogEntry('fault', id, 'update', Object.keys(updates).join(', '));
+  };
+
+  const deleteFault = (id: string) => {
+    const target = faults.find((f) => f.id === id);
+    setFaults((prev) => prev.filter((f) => f.id !== id));
+    addAuditLogEntry('fault', id, 'delete', 'title', target?.title, 'حذف خطا از ماتریس');
+  };
+
+  const addProblem = (problemData: Omit<ProblemItem, 'id' | 'created_at'>) => {
+    const newProblem: ProblemItem = {
+      ...problemData,
+      id: `prob-${Date.now().toString().slice(-4)}`,
+      created_at: new Date().toISOString(),
+    };
+    setProblems((prev) => [newProblem, ...prev]);
+    addAuditLogEntry('settings', newProblem.id, 'create', 'problem_tracker', undefined, newProblem.title);
+  };
+
+  const updateProblem = (id: string, updates: Partial<ProblemItem>) => {
+    setProblems((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, ...updates } : p))
+    );
+    addAuditLogEntry('settings', id, 'update', 'problem_tracker', undefined, updates.status || 'ویرایش مشکل');
+  };
+
+  const deleteProblem = (id: string) => {
+    setProblems((prev) => prev.filter((p) => p.id !== id));
+    addAuditLogEntry('settings', id, 'delete', 'problem_tracker');
   };
 
   return (
@@ -672,6 +849,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         activeTab,
         setActiveTab,
         assessments: assessments.filter((a) => !a.deleted_at),
+        allAssessments: assessments,
         agents,
         faults,
         teams: SEED_TEAMS,
@@ -679,6 +857,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         teamLeads: SEED_TEAM_LEADS,
         auditLogs,
         settings,
+        problems,
         supportRubric,
         salesRubric,
         supportFormVersion,
@@ -686,6 +865,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addAssessment,
         updateAssessment,
         deleteAssessment,
+        restoreAssessment,
         markTeamLeadReviewed,
         submitDispute,
         resolveDispute,
@@ -694,11 +874,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         importDataFromJson,
         importAgentsFromCsv,
         updateRubricItemWeight,
+        updateFullRubric,
         updateSettings,
         addAgent,
         updateAgent,
         addFault,
         updateFault,
+        deleteFault,
+        addProblem,
+        updateProblem,
+        deleteProblem,
+        isAuthenticated,
+        showLoginModal,
+        setShowLoginModal,
+        login,
+        logout,
       }}
     >
       {children}

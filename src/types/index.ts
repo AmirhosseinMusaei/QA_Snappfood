@@ -59,7 +59,9 @@ export interface Agent {
   team: string; // e.g. "Campaign", "Technical"
   team_lead: string; // e.g. "نگین رضایی"
   controller: string; // e.g. "meysam"
-  operator_panel?: string; // e.g. "CRM Sales", "Ring"
+  operator_panel?: 'Ring' | 'VOIP' | 'Jira' | string;
+  sample_name?: string; // e.g. "Support group", "Random Sampling"
+  check_process?: 'if needed' | 'mandatory' | string;
   min_monthly_reviews: number; // default 40
   avatar?: string;
   active: boolean;
@@ -136,6 +138,9 @@ export interface Assessment {
   // Form versioning
   form_version?: number;
 
+  // Improvement Action Taken
+  action_taken?: 'آموزش فردی' | 'فیدبک' | 'بررسی و اصلاح اسکریپت' | 'تحلیل تماس‌ها' | 'اصلاح فرآیند' | 'توضیح اثر خطا' | string;
+
   // Calculated Scores
   total_score: number;
   created_at: string; // ISO string
@@ -182,7 +187,16 @@ export interface AuditLog {
   user_role: UserRole;
   entity: 'assessment' | 'dispute' | 'agent' | 'rubric' | 'fault' | 'settings';
   entity_id: string;
-  action: 'create' | 'update' | 'delete' | 'dispute_filed' | 'dispute_resolved' | 'dispute_rejected' | 'team_lead_reviewed';
+  action:
+    | 'create'
+    | 'update'
+    | 'delete'
+    | 'dispute_filed'
+    | 'dispute_resolved'
+    | 'dispute_rejected'
+    | 'team_lead_reviewed'
+    | 'rubric_updated'
+    | 'settings_updated';
   field?: string;
   old_value?: string;
   new_value?: string;
@@ -193,7 +207,24 @@ export interface PortalSettings {
   dispute_window_days: number;
   min_monthly_reviews_default: number;
   sales_mistake_deductions: Record<number, number>; // count -> score
+  high_quality_threshold: number; // default 95
+  low_quality_threshold: number; // default 80
   fraud_penalty_single: number; // 0 (zeroes score)
   fraud_penalty_monthly_1: number; // -10 points
   fraud_penalty_monthly_multiple: number; // 0 (zeroes monthly score)
+}
+
+export interface ProblemItem {
+  id: string;
+  priority: 'High' | 'Medium' | 'Low' | 'Critical';
+  issue_date: string; // Jalali date e.g. "۱۴۰۳/۰۷/۱۰"
+  team: string;
+  category: string;
+  title: string;
+  description: string;
+  status: 'Pending' | 'Resolved';
+  owner: string;
+  resolved_at?: string;
+  solution_note?: string;
+  created_at: string;
 }

@@ -1,4 +1,4 @@
-import { Agent, Team, Fault, Assessment, AuditLog, PortalSettings, User } from '../types/index.ts';
+import { Agent, Team, Fault, Assessment, AuditLog, PortalSettings, User, ProblemItem } from '../types/index.ts';
 
 export const DEFAULT_SETTINGS: PortalSettings = {
   dispute_window_days: 3,
@@ -11,6 +11,8 @@ export const DEFAULT_SETTINGS: PortalSettings = {
     4: 10,
     5: 0,
   },
+  high_quality_threshold: 95,
+  low_quality_threshold: 80,
   fraud_penalty_single: 0,
   fraud_penalty_monthly_1: -10,
   fraud_penalty_monthly_multiple: 0,
@@ -1274,5 +1276,60 @@ export const SEED_AUDIT_LOGS: AuditLog[] = [
     action: 'team_lead_reviewed',
     new_value: 'بررسی شد و تاییدیه آدرس اخذ گردید.',
     created_at: '۱۴۰۳/۰۷/۱۳ ۱۰:۳۰',
+  },
+];
+
+export const SEED_PROBLEMS: ProblemItem[] = [
+  {
+    id: 'prob-101',
+    priority: 'High',
+    issue_date: '۱۴۰۳/۰۷/۱۲',
+    team: 'Technical',
+    category: 'Process problem',
+    title: 'عدم ثبت خودکار کد وندور در سامانه تیکتینگ',
+    description: 'در مواردی که وندور از طریق VOIP تماس می‌گیرد، شناسه وندور در فرم تیکت ذخیره نمی‌شود و کارشناس مجبور به ثبت دستی است.',
+    status: 'Pending',
+    owner: 'حسین جدیری',
+    created_at: '2026-10-04T10:00:00Z',
+  },
+  {
+    id: 'prob-102',
+    priority: 'Critical',
+    issue_date: '۱۴۰۳/۰۷/۱۵',
+    team: 'Vendor Success',
+    category: 'Policy problem',
+    title: 'مغایرت درصد کمیسیون قراردادهای جدید با فاکتور',
+    description: 'وندورهای جدید کمپین پاییزه با نرخ کمیسیون متفاوتی در بک‌ند ثبت شده‌اند که موجب نارضایتی و تماس‌های متعدد شده است.',
+    status: 'Pending',
+    owner: 'نگین رضایی',
+    created_at: '2026-10-07T12:30:00Z',
+  },
+  {
+    id: 'prob-103',
+    priority: 'Medium',
+    issue_date: '۱۴۰۳/۰۷/۰۸',
+    team: 'Campaign',
+    category: 'Snappfood problem',
+    title: 'کندی لودینگ پنل مدیریت کدهای تخفیف در ساعات پیک',
+    description: 'بین ساعت ۱۲ تا ۱۴ سرور ریدایرکت با تاخیر مواجه می‌شود و ثبت کوپن برای فروشگاه‌های اکسپرس خطا می‌دهد.',
+    status: 'Resolved',
+    owner: 'راضیه دبیری',
+    resolved_at: '۱۴۰۳/۰۷/۱۰',
+    solution_note: 'کش سرور کدهای تخفیف توسط تیم زیرساخت افزایش یافت و مشکل مرتفع شد.',
+    created_at: '2026-09-30T09:15:00Z',
+  },
+  {
+    id: 'prob-104',
+    priority: 'Low',
+    issue_date: '۱۴۰۳/۰۶/۲۹',
+    team: 'Content',
+    category: 'Support problem',
+    title: 'نیاز به آپدیت تصاویر منوی دسته‌بندی فست‌فود',
+    description: 'تصاویر ارسالی بعضی رستوران‌ها نیاز به استانداردسازی ابعاد و قالب اسنپ‌فود دارد.',
+    status: 'Resolved',
+    owner: 'علی قلیزاده',
+    resolved_at: '۱۴۰۳/۰۷/۰۲',
+    solution_note: 'گایدلاین عکاسی منو برای کارشناسان کانتنت بازآموزی شد.',
+    created_at: '2026-09-19T14:00:00Z',
   },
 ];

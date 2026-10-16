@@ -109,11 +109,28 @@ export function formatScoreBadge(score: number): {
 }
 
 /**
- * Check if assessment is within the 3-day dispute window
+ * Check if assessment date is within the configurable dispute window (default 3 days)
  */
-export function isWithinDisputeWindow(createdAtIso: string, daysAllowed: number = 3): boolean {
+export function isWithinDisputeWindow(dateOrIso: string, daysAllowed: number = 3): boolean {
   try {
-    const created = new Date(createdAtIso).getTime();
+    if (!dateOrIso) return false;
+    const eng = toEnglishDigits(dateOrIso).trim();
+
+    // Check if it's a Jalali string e.g. "1403/07/24"
+    if (eng.includes('/')) {
+      const parts = eng.split('/').map(Number);
+      if (parts.length >= 3) {
+        // Approximate day difference based on current Jalali date (current month is 07 / Mehr 1403)
+        const [jy, jm, jd] = parts;
+        const [curJy, curJm, curJd] = [1403, 7, 24]; // Base reference matching project seed
+        const daysAgo = (curJy - jy) * 365 + (curJm - jm) * 30 + (curJd - jd);
+        // Allow if check was in the last N days (or future/today)
+        return daysAgo <= daysAllowed && daysAgo >= -1;
+      }
+    }
+
+    const created = new Date(dateOrIso).getTime();
+    if (isNaN(created)) return true; // Fail-safe permissive
     const now = Date.now();
     const diffDays = (now - created) / (1000 * 60 * 60 * 24);
     return diffDays <= daysAllowed;

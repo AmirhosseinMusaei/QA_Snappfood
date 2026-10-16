@@ -54,6 +54,7 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
   // Team Lead review inputs
   const [teamLeadNoteInput, setTeamLeadNoteInput] = useState(assessment.team_lead_note || '');
   const [isEditingNote, setIsEditingNote] = useState(false);
+  const [noteValidationError, setNoteValidationError] = useState<string | null>(null);
   const [reviewSuccessMessage, setReviewSuccessMessage] = useState<string | null>(null);
 
   // Dispute resolution states (for QA Controller / Admin)
@@ -87,10 +88,11 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
   const handleTeamLeadSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!teamLeadNoteInput.trim()) {
-      alert('لطفاً بازخورد و یادداشت بررسی خود را وارد کنید.');
+      setNoteValidationError('لطفاً بازخورد و یادداشت بررسی خود را وارد کنید.');
       return;
     }
 
+    setNoteValidationError(null);
     markTeamLeadReviewed(assessment.id, teamLeadNoteInput.trim());
     setIsEditingNote(false);
     setReviewSuccessMessage('وضعیت ارزیابی با موفقیت به "بررسی شده" تغییر یافت و یادداشت سرپرست ثبت شد.');
@@ -290,9 +292,19 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                         required
                         placeholder="مثال: در جلسه ۱-on-۱ با کارشناس تماس بازشنوایی شد و نحوه استعلام صحیح کد فروشگاه به ایشان آموزش داده شد..."
                         value={teamLeadNoteInput}
-                        onChange={(e) => setTeamLeadNoteInput(e.target.value)}
-                        className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-xs leading-relaxed focus:outline-none focus:border-indigo-500 shadow-2xs"
+                        onChange={(e) => {
+                          setTeamLeadNoteInput(e.target.value);
+                          if (noteValidationError) setNoteValidationError(null);
+                        }}
+                        className={`w-full p-2.5 rounded-xl border ${
+                          noteValidationError ? 'border-rose-500 ring-1 ring-rose-500' : 'border-slate-300 dark:border-slate-600'
+                        } bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-xs leading-relaxed focus:outline-none focus:border-indigo-500 shadow-2xs`}
                       />
+                      {noteValidationError && (
+                        <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 mt-1">
+                          {noteValidationError}
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-end gap-2">

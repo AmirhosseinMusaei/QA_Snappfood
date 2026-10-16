@@ -2,5 +2,7 @@
   "name": "SnappFood Commercial QA Portal",
   "description": "سامانه کنترل کیفیت عملیات تجاری اسنپ‌فود - پورتال پیشرفته ارزیابی مبتنی بر کسر نمره، مدیریت نقش‌های دسترسی و تحلیل عملکرد",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
