@@ -1,0 +1,238 @@
+// Prisma Schema for SnappFood Commercial QA Portal
+// Supports SQLite for Dev and Microsoft SQL Server for Production via DATABASE_URL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite" // In production with Microsoft SQL Server, change to provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String      @id @default(cuid())
+  username   String      @unique
+  password   String      // Hashed with bcrypt
+  name       String
+  role       String      // 'agent' | 'team_lead' | 'manager' | 'qa_controller' | 'qa_supervisor' | 'admin'
+  department String?     // 'support' | 'sales'
+  team       String?
+  avatar     String?
+  active     Boolean     @default(true)
+  created_at DateTime    @default(now())
+  updated_at DateTime    @updatedAt
+
+  audit_logs AuditLog[]
+}
+
+model Team {
+  id         String      @id @default(cuid())
+  name       String      @unique
+  department String      // 'support' | 'sales'
+  lead_name  String
+  created_at DateTime    @default(now())
+  updated_at DateTime    @updatedAt
+
+  agents      Agent[]
+  assessments Assessment[]
+}
+
+model Agent {
+  id                  String       @id @default(cuid())
+  source_id           String       @unique // e.g. "3718"
+  name                String
+  department          String       // 'support' | 'sales'
+  team_id             String
+  team_name           String
+  team_lead           String
+  controller          String
+  operator_panel      String?      // 'CRM Sales' | 'Ring' | 'Zendesk'
+  min_monthly_reviews Int          @default(40)
+  avatar              String?
+  active              Boolean      @default(true)
+  created_at          DateTime     @default(now())
+  updated_at          DateTime     @updatedAt
+
+  team                Team         @relation(fields: [team_id], references: [id])
+  assessments         Assessment[]
+
+  @@index([source_id])
+  @@index([team_id])
+}
+
+model AssessmentForm {
+  id          String         @id @default(cuid())
+  form_type   String         // 'support' | 'sales'
+  title       String
+  version     Int            @default(1)
+  is_active   Boolean        @default(true)
+  created_at  DateTime       @default(now())
+  updated_at  DateTime       @updatedAt
+
+  criteria    RubricCriteria[]
+  assessments Assessment[]
+
+  @@unique([form_type, version])
+}
+
+model RubricCriteria {
+  id          String               @id @default(cuid())
+  form_id     String
+  section     String               // e.g. 'soft_skill' | 'knowledge' | 'script'
+  title       String
+  max_points  Int
+  order_index Int                  @default(0)
+
+  form        AssessmentForm       @relation(fields: [form_id], references: [id])
+  items       RubricCriteriaItem[]
+
+  @@index([form_id])
+}
+
+model RubricCriteriaItem {
+  id          String         @id @default(cuid())
+  criteria_id String
+  title       String
+  max_points  Int
+  order_index Int            @default(0)
+
+  criteria    RubricCriteria @relation(fields: [criteria_id], references: [id], onDelete: Cascade)
+
+  @@index([criteria_id])
+}
+
+model Fault {
+  id          String       @id @default(cuid())
+  title       String       @unique
+  department  String       // 'support' | 'sales' | 'both'
+  category    String
+  is_critical Boolean      @default(false)
+  description String?
+  created_at  DateTime     @default(now())
+  updated_at  DateTime     @updatedAt
+
+  assessments Assessment[]
+}
+
+model Assessment {
+  id                    String            @id @default(cuid())
+  agent_id              String
+  controller_id         String
+  team_id               String?
+  form_id               String?
+  form_type             String            // 'support' | 'sales'
+  sample_name           String            // 'Support group' | 'bi-party' | 'Dislike' | 'Random Sampling' | 'if needed'
+  vendor_id             String?
+  vendor_title          String?
+  check_date            String            // Jalali date '1403/07/24'
+  check_date_utc        DateTime          @default(now()) // Gregorian UTC date for month grouping
+  fault_id              String?
+  backend_general       Boolean           @default(false)
+  is_fraud              Boolean           @default(false)
+  result                String            // 'No problem' | 'Need to check' | 'Coaching Required'
+  result_comment        String?
+
+  // Team Lead Review Workflow
+  team_lead_reviewed    Boolean           @default(false)
+  team_lead_note        String?
+  team_lead_reviewed_at String?
+
+  // Support Specific Fields
+  ticket_number         String?
+  voice_link            String?
+  fault_categories      String?           // JSON array string e.g. '["Vendor problem"]'
+  description           String?
+
+  // Sales Specific Fields
+  phone_number          String?
+  project               String?           // 'All Project' | 'NCR' | 'Promotion' | 'Campaign' | 'Bi-Party'
+  discount_or_coupon    String?
+  registration_date     String?
+  execution_date        String?
+  mistake_count         Int?              @default(0)
+
+  // Scores
+  total_score           Int
+  created_at            DateTime          @default(now())
+  updated_at            DateTime          @updatedAt
+  deleted_at            DateTime?         // Soft delete
+
+  agent                 Agent             @relation(fields: [agent_id], references: [id])
+  team                  Team?             @relation(fields: [team_id], references: [id])
+  form                  AssessmentForm?   @relation(fields: [form_id], references: [id])
+  fault                 Fault?            @relation(fields: [fault_id], references: [id])
+  scores                AssessmentScore[]
+  disputes              Dispute[]
+
+  @@index([agent_id])
+  @@index([check_date])
+  @@index([team_id])
+  @@index([result])
+  @@index([controller_id])
+  @@index([deleted_at])
+}
+
+model AssessmentScore {
+  id            String     @id @default(cuid())
+  assessment_id String
+  item_id       String     // Reference to RubricCriteriaItem id
+  criterion_id  String?
+  awarded_score Int
+  max_score     Int
+
+  assessment    Assessment @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+
+  @@index([assessment_id])
+  @@index([item_id])
+}
+
+model Dispute {
+  id                 String     @id @default(cuid())
+  assessment_id      String
+  agent_id           String
+  agent_name         String
+  criterion_id       String?
+  criterion_title    String?
+  agent_comment      String
+  status             String     @default("pending") // 'pending' | 'resolved' | 'rejected'
+  controller_id      String?
+  controller_comment String?
+  original_score     Int
+  revised_score      Int?
+  created_at         DateTime   @default(now())
+  resolved_at        DateTime?
+
+  assessment         Assessment @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+
+  @@index([assessment_id])
+  @@index([status])
+  @@index([agent_id])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  user_id    String
+  user_name  String
+  user_role  String
+  entity     String   // 'assessment' | 'dispute' | 'agent' | 'rubric' | 'fault' | 'settings'
+  entity_id  String
+  action     String   // 'create' | 'update' | 'delete' | 'dispute_filed' | 'dispute_resolved' | 'team_lead_reviewed'
+  field      String?
+  old_value  String?
+  new_value  String?
+  created_at DateTime @default(now())
+
+  user       User?    @relation(fields: [user_id], references: [id])
+
+  @@index([entity])
+  @@index([entity_id])
+  @@index([created_at])
+}
+
+model Setting {
+  key         String   @id
+  value       String   // JSON string
+  description String?
+  updated_at  DateTime @updatedAt
+}
