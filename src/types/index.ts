@@ -43,6 +43,7 @@ export type SalesProject =
 export interface User {
   id: string;
   username: string;
+  password?: string;
   name: string;
   role: UserRole;
   department?: DepartmentType;
@@ -56,8 +57,12 @@ export interface Agent {
   source_id: string; // e.g. "3718"
   name: string;
   department: DepartmentType;
+  user_id?: string;
+  team_id?: string;
   team: string; // e.g. "Campaign", "Technical"
+  team_lead_id?: string;
   team_lead: string; // e.g. "نگین رضایی"
+  controller_id?: string;
   controller: string; // e.g. "meysam"
   operator_panel?: 'Ring' | 'VOIP' | 'Jira' | string;
   sample_name?: string; // e.g. "Support group", "Random Sampling"
@@ -72,6 +77,7 @@ export interface Team {
   name: string;
   department: DepartmentType;
   lead_name: string;
+  lead_id?: string;
 }
 
 export interface Fault {
@@ -83,9 +89,11 @@ export interface Fault {
   description?: string;
 }
 
+export type DisputeStatus = 'pending' | 'in_review' | 'resolved' | 'rejected';
+
 export interface Dispute {
   id: string;
-  status: 'pending' | 'resolved' | 'rejected';
+  status: DisputeStatus;
   created_at: string; // Jalali timestamp e.g. "1403/07/24 14:30"
   agent_id: string;
   agent_name: string;
@@ -107,7 +115,12 @@ export interface Assessment {
   sample_name: SampleType;
   vendor_id?: string;
   vendor_title?: string;
-  check_date: string; // Jalali date e.g. "1403/07/24"
+  check_date: string; // Gregorian ISO string
+  check_date_jalali?: string; // Derived Jalali display string e.g. "۱۴۰۳/۰۷/۲۲"
+  check_date_jalali_plain?: string; // Derived Jalali plain string e.g. "1403/07/22"
+  check_date_month?: string; // Derived Jalali month name e.g. "مهر"
+  check_date_month_num?: number; // Derived Jalali month number e.g. 7
+  check_date_year?: number; // Derived Jalali year e.g. 1403
   fault_id?: string;
   backend_general: boolean; // Error from backend (no penalty)
   is_fraud: boolean; // Fraudulent act (drops score to 0)
@@ -136,6 +149,7 @@ export interface Assessment {
   sales_scores?: Record<string, number>;
 
   // Form versioning
+  form_id?: string;
   form_version?: number;
 
   // Improvement Action Taken
@@ -192,6 +206,7 @@ export interface AuditLog {
     | 'update'
     | 'delete'
     | 'dispute_filed'
+    | 'dispute_in_review'
     | 'dispute_resolved'
     | 'dispute_rejected'
     | 'team_lead_reviewed'
@@ -206,6 +221,7 @@ export interface AuditLog {
 export interface PortalSettings {
   dispute_window_days: number;
   min_monthly_reviews_default: number;
+  controller_monthly_target: number; // default 160
   sales_mistake_deductions: Record<number, number>; // count -> score
   high_quality_threshold: number; // default 95
   low_quality_threshold: number; // default 80

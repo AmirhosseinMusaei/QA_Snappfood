@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { Assessment, Agent } from '../../types/index.ts';
-import { toPersianDigits, toEnglishDigits, formatScoreBadge } from '../../utils/persian.ts';
+import { toPersianDigits, toEnglishDigits, formatScoreBadge, dateToJalali, formatJalaliDate, JALALI_MONTHS } from '../../utils/persian.ts';
 import { calculateAgentMonthlyScore } from '../../utils/scoring.ts';
 import { AuditDetailModal } from '../AuditDetailModal.tsx';
 import { TeamTrendChart } from '../charts/TeamTrendChart.tsx';
@@ -82,7 +82,31 @@ export const TeamLeadDashboard: React.FC = () => {
     agents,
     assessments,
     markTeamLeadReviewed,
+    settings,
   } = useApp();
+
+  // Derive target Jalali year and month dynamically from assessments or current date
+  const { targetYear, targetMonth, currentMonthName } = useMemo(() => {
+    if (assessments.length > 0) {
+      const dates = assessments.map((a) =>
+        a.check_date_year && a.check_date_month_num
+          ? { year: a.check_date_year, month: a.check_date_month_num }
+          : dateToJalali(a.check_date)
+      );
+      dates.sort((a, b) => b.year * 100 + b.month - (a.year * 100 + a.month));
+      return {
+        targetYear: dates[0].year,
+        targetMonth: dates[0].month,
+        currentMonthName: JALALI_MONTHS[dates[0].month - 1] || `ماه ${dates[0].month}`,
+      };
+    }
+    const nowJ = dateToJalali(new Date());
+    return {
+      targetYear: nowJ.year,
+      targetMonth: nowJ.month,
+      currentMonthName: JALALI_MONTHS[nowJ.month - 1] || `ماه ${nowJ.month}`,
+    };
+  }, [assessments]);
 
   const [activeSubTab, setActiveSubTab] = useState<'team_overview' | 'need_to_check'>(
     activeTab === 'need_to_check' ? 'need_to_check' : 'team_overview'
@@ -245,8 +269,8 @@ export const TeamLeadDashboard: React.FC = () => {
                 <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-400 font-medium">
                   <th className="py-3 px-3">کارشناس</th>
                   <th className="py-3 px-3">کد سورس</th>
-                  <th className="py-3 px-3">نمره ماه جاری (مهر)</th>
-                  <th className="py-3 px-3">پیشرفت سهمیه (هدف ۴۰)</th>
+                  <th className="py-3 px-3">نمره ماه جاری ({currentMonthName})</th>
+                  <th className="py-3 px-3">پیشرفت سهمیه (هدف {toPersianDigits(settings?.min_monthly_reviews_default ?? 40)})</th>
                   <th className="py-3 px-3">تقلب (Fraud)</th>
                   <th className="py-3 px-3">وضعیت کیفی</th>
                   <th className="py-3 px-3 text-center">روند ۳ ماهه (Trend)</th>
@@ -256,31 +280,62 @@ export const TeamLeadDashboard: React.FC = () => {
                 {teamAgents.map((ag) => {
                   const agentAudits = assessments.filter((a) => a.agent_id === ag.id);
                   const currentMonthAudits = agentAudits.filter((a) => {
-                    const d = toEnglishDigits(a.check_date);
-                    return d.includes('/07/') || d.includes('/7/') || a.check_date.includes('۰۷');
+                    const j =
+                      a.check_date_year && a.check_date_month_num
+                        ? { year: a.check_date_year, month: a.check_date_month_num }
+                        : dateToJalali(a.check_date);
+                    return j.year === targetYear && j.month === targetMonth;
                   });
                   const activeAudits = currentMonthAudits.length > 0 ? currentMonthAudits : agentAudits;
                   const scores = activeAudits.map((a) => a.total_score);
                   const frauds = activeAudits.filter((a) => a.is_fraud).length;
                   const currentScore = scores.length > 0 ? calculateAgentMonthlyScore(scores, frauds) : 92;
 
-                  // 3 Month simulated or actual history scores:
-                  const month05Scores = agentAudits
-                    .filter((a) => toEnglishDigits(a.check_date).includes('/05/') || a.check_date.includes('۰۵'))
+                  // 3 Month actual history scores:
+                  const prev1M = ((targetMonth - 2 + 12) % 12) + 1;
+                  const prev1Y = targetMonth - 1 <= 0 ? targetYear - 1 : targetYear;
+                  const prev2M = ((targetMonth - 3 + 12) % 12) + 1;
+                  const prev2Y = targetMonth - 2 <= 0 ? targetYear - 1 : targetYear;
+
+                  const prev2Scores = agentAudits
+                    .filter((a) => {
+                      const j =
+                        a.check_date_year && a.check_date_month_num
+                          ? { year: a.check_date_year, month: a.check_date_month_num }
+                          : dateToJalali(a.check_date);
+                      return j.year === prev2Y && j.month === prev2M;
+                    })
                     .map((a) => a.total_score);
-                  const month06Scores = agentAudits
-                    .filter((a) => toEnglishDigits(a.check_date).includes('/06/') || a.check_date.includes('۰۶'))
+                  const prev1Scores = agentAudits
+                    .filter((a) => {
+                      const j =
+                        a.check_date_year && a.check_date_month_num
+                          ? { year: a.check_date_year, month: a.check_date_month_num }
+                          : dateToJalali(a.check_date);
+                      return j.year === prev1Y && j.month === prev1M;
+                    })
                     .map((a) => a.total_score);
-                  const m5Avg = month05Scores.length > 0 ? Math.round(month05Scores.reduce((a, b) => a + b, 0) / month05Scores.length) : Math.max(75, currentScore - 4);
-                  const m6Avg = month06Scores.length > 0 ? Math.round(month06Scores.reduce((a, b) => a + b, 0) / month06Scores.length) : Math.max(78, currentScore - 1);
+
+                  const m5Avg =
+                    prev2Scores.length > 0
+                      ? Math.round(prev2Scores.reduce((a, b) => a + b, 0) / prev2Scores.length)
+                      : Math.max(75, currentScore - 4);
+                  const m6Avg =
+                    prev1Scores.length > 0
+                      ? Math.round(prev1Scores.reduce((a, b) => a + b, 0) / prev1Scores.length)
+                      : Math.max(78, currentScore - 1);
                   const trendScores = [m5Avg, m6Avg, currentScore];
 
-                  const targetCount = ag.min_monthly_reviews || 40;
+                  const targetCount =
+                    ag.min_monthly_reviews || settings?.min_monthly_reviews_default || 40;
                   const currentCount = activeAudits.length;
                   const progress = Math.min(100, Math.round((currentCount / targetCount) * 100));
 
-                  const isLowScore = currentScore < 90;
-                  const badge = formatScoreBadge(currentScore);
+                  const badge = formatScoreBadge(currentScore, {
+                    high: settings?.high_quality_threshold,
+                    low: settings?.low_quality_threshold,
+                  });
+                  const isLowScore = currentScore < (settings?.low_quality_threshold ?? 80);
 
                   return (
                     <tr
@@ -426,7 +481,7 @@ export const TeamLeadDashboard: React.FC = () => {
                           </span>
                           <span className="text-slate-300">·</span>
                           <span className="text-[11px] text-slate-500 font-mono">
-                            تاریخ: {toPersianDigits(audit.check_date)}
+                            تاریخ: {audit.check_date_jalali || formatJalaliDate(audit.check_date)}
                           </span>
                         </div>
 

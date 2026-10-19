@@ -16,7 +16,15 @@ import {
   Users,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
-import { toPersianDigits, toEnglishDigits, formatScoreBadge } from '../../utils/persian.ts';
+import {
+  toPersianDigits,
+  toEnglishDigits,
+  formatScoreBadge,
+  dateToJalali,
+  formatJalaliDate,
+  JALALI_MONTHS,
+} from '../../utils/persian.ts';
+import { exportReportToExcel } from '../../utils/exportExcel.ts';
 import {
   ResponsiveContainer,
   BarChart,
@@ -38,11 +46,11 @@ export const ReportsView: React.FC = () => {
   const [startDate, setStartDate] = useState('1403/05/01');
   const [endDate, setEndDate] = useState('1403/07/30');
 
-  // Filtered assessments by date range
+  // Filtered assessments by date range (using derived Jalali date plain string)
   const dateFilteredAudits = useMemo(() => {
     return assessments.filter((a) => {
-      const d = toEnglishDigits(a.check_date);
-      return d >= startDate && d <= endDate;
+      const jalaliPlain = a.check_date_jalali_plain || dateToJalali(a.check_date).jalaliStr;
+      return jalaliPlain >= startDate && jalaliPlain <= endDate;
     });
   }, [assessments, startDate, endDate]);
 
@@ -74,7 +82,7 @@ export const ReportsView: React.FC = () => {
       });
 
       const totalChecked = ctrlAudits.length;
-      const target = ctrl.target || 200;
+      const target = ctrl.target || settings.controller_monthly_target || 200;
       const progressPercent = Math.min(100, Math.round((totalChecked / target) * 100));
 
       return {
@@ -85,16 +93,58 @@ export const ReportsView: React.FC = () => {
         progressPercent,
       };
     });
-  }, [controllers, dateFilteredAudits, teamList, agents]);
+  }, [controllers, dateFilteredAudits, teamList, agents, settings]);
 
   // --- REPORT 2: 3 MONTH (High Quality >= 95 vs Low Quality < 80) ---
   const threeMonthAnalysis = useMemo(() => {
     const highThresh = settings.high_quality_threshold || 95;
     const lowThresh = settings.low_quality_threshold || 80;
 
-    const m05 = assessments.filter((a) => toEnglishDigits(a.check_date).includes('/05/') || a.check_date.includes('۰۵'));
-    const m06 = assessments.filter((a) => toEnglishDigits(a.check_date).includes('/06/') || a.check_date.includes('۰۶'));
-    const m07 = assessments.filter((a) => toEnglishDigits(a.check_date).includes('/07/') || a.check_date.includes('۰۷'));
+    let targetYear = 1403;
+    let targetMonth = 7;
+    if (assessments.length > 0) {
+      const dates = assessments.map((a) =>
+        a.check_date_year && a.check_date_month_num
+          ? { year: a.check_date_year, month: a.check_date_month_num }
+          : dateToJalali(a.check_date)
+      );
+      dates.sort((a, b) => b.year * 100 + b.month - (a.year * 100 + a.month));
+      targetYear = dates[0].year;
+      targetMonth = dates[0].month;
+    }
+
+    const m3M = targetMonth;
+    const m3Y = targetYear;
+    const m2M = ((m3M - 2 + 12) % 12) + 1;
+    const m2Y = m3M - 1 <= 0 ? m3Y - 1 : m3Y;
+    const m1M = ((m3M - 3 + 12) % 12) + 1;
+    const m1Y = m3M - 2 <= 0 ? m3Y - 1 : m3Y;
+
+    const m1Name = JALALI_MONTHS[m1M - 1] || `ماه ${m1M}`;
+    const m2Name = JALALI_MONTHS[m2M - 1] || `ماه ${m2M}`;
+    const m3Name = JALALI_MONTHS[m3M - 1] || `ماه ${m3M}`;
+
+    const m1Audits = assessments.filter((a) => {
+      const j =
+        a.check_date_year && a.check_date_month_num
+          ? { year: a.check_date_year, month: a.check_date_month_num }
+          : dateToJalali(a.check_date);
+      return j.year === m1Y && j.month === m1M;
+    });
+    const m2Audits = assessments.filter((a) => {
+      const j =
+        a.check_date_year && a.check_date_month_num
+          ? { year: a.check_date_year, month: a.check_date_month_num }
+          : dateToJalali(a.check_date);
+      return j.year === m2Y && j.month === m2M;
+    });
+    const m3Audits = assessments.filter((a) => {
+      const j =
+        a.check_date_year && a.check_date_month_num
+          ? { year: a.check_date_year, month: a.check_date_month_num }
+          : dateToJalali(a.check_date);
+      return j.year === m3Y && j.month === m3M;
+    });
 
     const agentAverages = agents.map((ag) => {
       const getAvg = (list: typeof assessments) => {
@@ -104,11 +154,11 @@ export const ReportsView: React.FC = () => {
         return Math.round((total / userAudits.length) * 10) / 10;
       };
 
-      const scoreM5 = getAvg(m05);
-      const scoreM6 = getAvg(m06);
-      const scoreM7 = getAvg(m07);
+      const scoreM1 = getAvg(m1Audits);
+      const scoreM2 = getAvg(m2Audits);
+      const scoreM3 = getAvg(m3Audits);
 
-      const allScores = [scoreM5, scoreM6, scoreM7].filter((s): s is number => s !== null);
+      const allScores = [scoreM1, scoreM2, scoreM3].filter((s): s is number => s !== null);
       const rollingAvg =
         allScores.length > 0
           ? Math.round((allScores.reduce((a, b) => a + b, 0) / allScores.length) * 10) / 10
@@ -116,17 +166,22 @@ export const ReportsView: React.FC = () => {
 
       return {
         agent: ag,
-        scoreM5,
-        scoreM6,
-        scoreM7,
+        scoreM1,
+        scoreM2,
+        scoreM3,
         rollingAvg,
       };
     });
 
-    const highQuality = agentAverages.filter((item) => item.rollingAvg >= highThresh);
-    const lowQuality = agentAverages.filter((item) => item.rollingAvg < lowThresh && item.rollingAvg > 0);
+    const highQuality = agentAverages
+      .filter((item) => item.rollingAvg >= highThresh)
+      .sort((a, b) => b.rollingAvg - a.rollingAvg);
 
-    return { highQuality, lowQuality, agentAverages };
+    const lowQuality = agentAverages
+      .filter((item) => item.rollingAvg < lowThresh && item.rollingAvg > 0)
+      .sort((a, b) => a.rollingAvg - b.rollingAvg);
+
+    return { highQuality, lowQuality, agentAverages, m1Name, m2Name, m3Name };
   }, [assessments, agents, settings]);
 
   // --- REPORT 3: Assessment-Report (Criteria Point Deductions Matrix) ---
@@ -204,6 +259,162 @@ export const ReportsView: React.FC = () => {
     return { categoryChartData, backendGeneralCount, fraudCount };
   }, [assessments]);
 
+  // Export handlers for Reports (Excel and CSV)
+  const handleExportExcel = () => {
+    if (activeReportTab === 'all_reports') {
+      const headers = ['کنترلر کیفیت', ...teamList, 'مجموع بررسی', 'تارگت ماهانه', 'درصد تحقق'];
+      const rows = controllerMatrix.map((item) => [
+        item.ctrl.display_name,
+        ...teamList.map((tm) => item.teamCounts[tm] || 0),
+        item.totalChecked,
+        item.target,
+        `${item.progressPercent}%`,
+      ]);
+      exportReportToExcel(
+        'ماتریس تعداد سمپل‌های بررسی‌شده کنترلرها به تفکیک تیم‌ها',
+        headers,
+        rows,
+        'snappfood_controller_matrix.xlsx'
+      );
+    } else if (activeReportTab === 'three_month') {
+      const headers = [
+        'کارشناس',
+        'تیم',
+        'وضعیت کیفی',
+        threeMonthAnalysis.m1Name,
+        threeMonthAnalysis.m2Name,
+        threeMonthAnalysis.m3Name,
+        'معدل ۳ ماهه',
+      ];
+      const rows: (string | number)[][] = [];
+      threeMonthAnalysis.highQuality.forEach((item) => {
+        rows.push([
+          item.agent.name,
+          item.agent.team,
+          'عالی (High Quality)',
+          item.scoreM1 ?? '-',
+          item.scoreM2 ?? '-',
+          item.scoreM3 ?? '-',
+          item.rollingAvg,
+        ]);
+      });
+      threeMonthAnalysis.lowQuality.forEach((item) => {
+        rows.push([
+          item.agent.name,
+          item.agent.team,
+          'نیازمند بهبود (Low Quality)',
+          item.scoreM1 ?? '-',
+          item.scoreM2 ?? '-',
+          item.scoreM3 ?? '-',
+          item.rollingAvg,
+        ]);
+      });
+      exportReportToExcel(
+        'گزارش عملکرد ۳ ماهه کارشناسان (High/Low Quality)',
+        headers,
+        rows,
+        'snappfood_3month_quality_report.xlsx'
+      );
+    } else if (activeReportTab === 'assessment_report') {
+      const headers = ['معیار / آیتم ارزیابی', 'تیم', 'تعداد دفعات کسر نمره', 'مجموع نمره از دست رفته'];
+      const rows = criteriaDeductions.map((item) => [
+        item.title,
+        item.team,
+        item.count,
+        item.lostPoints,
+      ]);
+      exportReportToExcel(
+        'ماتریس افت نمرات و خطاهای پرتکرار معیارها',
+        headers,
+        rows,
+        'snappfood_criteria_deductions.xlsx'
+      );
+    } else {
+      const headers = ['دسته ریشه‌ای خطا', 'تعداد موارد'];
+      const rows = faultAnalytics.categoryChartData.map((item) => [item.name, item.تعداد]);
+      exportReportToExcel(
+        'تحلیل ریشه‌ای خطاها و عدم انطباق‌های عملیاتی',
+        headers,
+        rows,
+        'snappfood_root_cause_faults.xlsx'
+      );
+    }
+  };
+
+  const handleExportCsv = () => {
+    let headers: string[] = [];
+    let rows: (string | number)[][] = [];
+    let title = 'report';
+
+    if (activeReportTab === 'all_reports') {
+      title = 'controller_matrix';
+      headers = ['کنترلر کیفیت', ...teamList, 'مجموع بررسی', 'تارگت ماهانه', 'درصد تحقق'];
+      rows = controllerMatrix.map((item) => [
+        item.ctrl.display_name,
+        ...teamList.map((tm) => item.teamCounts[tm] || 0),
+        item.totalChecked,
+        item.target,
+        `${item.progressPercent}%`,
+      ]);
+    } else if (activeReportTab === 'three_month') {
+      title = 'three_month_report';
+      headers = [
+        'کارشناس',
+        'تیم',
+        'وضعیت کیفی',
+        threeMonthAnalysis.m1Name,
+        threeMonthAnalysis.m2Name,
+        threeMonthAnalysis.m3Name,
+        'معدل ۳ ماهه',
+      ];
+      threeMonthAnalysis.highQuality.forEach((item) => {
+        rows.push([
+          item.agent.name,
+          item.agent.team,
+          'عالی (High Quality)',
+          item.scoreM1 ?? '-',
+          item.scoreM2 ?? '-',
+          item.scoreM3 ?? '-',
+          item.rollingAvg,
+        ]);
+      });
+      threeMonthAnalysis.lowQuality.forEach((item) => {
+        rows.push([
+          item.agent.name,
+          item.agent.team,
+          'نیازمند بهبود (Low Quality)',
+          item.scoreM1 ?? '-',
+          item.scoreM2 ?? '-',
+          item.scoreM3 ?? '-',
+          item.rollingAvg,
+        ]);
+      });
+    } else if (activeReportTab === 'assessment_report') {
+      title = 'criteria_deductions';
+      headers = ['معیار / آیتم ارزیابی', 'تیم', 'تعداد دفعات کسر نمره', 'مجموع نمره از دست رفته'];
+      rows = criteriaDeductions.map((item) => [
+        item.title,
+        item.team,
+        item.count,
+        item.lostPoints,
+      ]);
+    } else {
+      title = 'fault_analytics';
+      headers = ['دسته ریشه‌ای خطا', 'تعداد موارد'];
+      rows = faultAnalytics.categoryChartData.map((item) => [item.name, item.تعداد]);
+    }
+
+    const csvContent =
+      'data:text/csv;charset=utf-8,\uFEFF' +
+      [headers.join(','), ...rows.map((r) => r.map((c) => `"${c}"`).join(','))].join('\n');
+    const link = document.createElement('a');
+    link.href = encodeURI(csvContent);
+    link.download = `snappfood_${title}_${Date.now()}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
       {/* 1. Header Banner */}
@@ -220,6 +431,28 @@ export const ReportsView: React.FC = () => {
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             منطبق با تب‌های اصلی شیت کنترل کیفیت اسنپ‌فود: ماتریس کنترلرها (`all reports`)، گزارش ۳ ماهه (`3 MONTH`)، افت نمرات معیارها و تحلیل ریشه‌ای خطاها
           </p>
+        </div>
+
+        {/* Export Buttons */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition"
+            title="خروجی فایل اکسل (.xlsx) منطبق بر این تب گزارش"
+          >
+            <Download className="w-4 h-4" />
+            <span>خروجی اکسل (.xlsx)</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600 text-xs font-semibold transition"
+            title="خروجی فایل متنی CSV"
+          >
+            <Download className="w-4 h-4" />
+            <span>خروجی CSV</span>
+          </button>
         </div>
       </div>
 
@@ -383,9 +616,9 @@ export const ReportsView: React.FC = () => {
                     <tr className="border-b border-emerald-100 dark:border-emerald-800/60 text-slate-400">
                       <th className="py-2 px-2">کارشناس</th>
                       <th className="py-2 px-2">تیم</th>
-                      <th className="py-2 px-2 text-center">مرداد</th>
-                      <th className="py-2 px-2 text-center">شهریور</th>
-                      <th className="py-2 px-2 text-center">مهر</th>
+                      <th className="py-2 px-2 text-center">{threeMonthAnalysis.m1Name}</th>
+                      <th className="py-2 px-2 text-center">{threeMonthAnalysis.m2Name}</th>
+                      <th className="py-2 px-2 text-center">{threeMonthAnalysis.m3Name}</th>
                       <th className="py-2 px-2 text-center font-bold">معدل ۳ ماهه</th>
                     </tr>
                   </thead>
@@ -397,13 +630,13 @@ export const ReportsView: React.FC = () => {
                         </td>
                         <td className="py-2.5 px-2 text-slate-500">{item.agent.team}</td>
                         <td className="py-2.5 px-2 text-center font-mono">
-                          {item.scoreM5 !== null ? toPersianDigits(item.scoreM5) : '-'}
+                          {item.scoreM1 !== null ? toPersianDigits(item.scoreM1) : '-'}
                         </td>
                         <td className="py-2.5 px-2 text-center font-mono">
-                          {item.scoreM6 !== null ? toPersianDigits(item.scoreM6) : '-'}
+                          {item.scoreM2 !== null ? toPersianDigits(item.scoreM2) : '-'}
                         </td>
                         <td className="py-2.5 px-2 text-center font-mono">
-                          {item.scoreM7 !== null ? toPersianDigits(item.scoreM7) : '-'}
+                          {item.scoreM3 !== null ? toPersianDigits(item.scoreM3) : '-'}
                         </td>
                         <td className="py-2.5 px-2 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400">
                           {toPersianDigits(item.rollingAvg)}
@@ -421,7 +654,7 @@ export const ReportsView: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="w-5 h-5 text-rose-600" />
                   <h3 className="font-bold text-xs text-rose-950 dark:text-rose-100">
-                    کارشناسان نیازمند کوچینگ (Low Quality &lt; ۸۰)
+                    کارشناسان نیازمند کوچینگ (Low Quality &lt; {toPersianDigits(settings?.low_quality_threshold ?? 80)})
                   </h3>
                 </div>
                 <span className="font-mono font-bold text-rose-600 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded text-xs">
@@ -435,9 +668,9 @@ export const ReportsView: React.FC = () => {
                     <tr className="border-b border-rose-100 dark:border-rose-800/60 text-slate-400">
                       <th className="py-2 px-2">کارشناس</th>
                       <th className="py-2 px-2">تیم</th>
-                      <th className="py-2 px-2 text-center">مرداد</th>
-                      <th className="py-2 px-2 text-center">شهریور</th>
-                      <th className="py-2 px-2 text-center">مهر</th>
+                      <th className="py-2 px-2 text-center">{threeMonthAnalysis.m1Name}</th>
+                      <th className="py-2 px-2 text-center">{threeMonthAnalysis.m2Name}</th>
+                      <th className="py-2 px-2 text-center">{threeMonthAnalysis.m3Name}</th>
                       <th className="py-2 px-2 text-center font-bold">معدل ۳ ماهه</th>
                     </tr>
                   </thead>
@@ -449,13 +682,13 @@ export const ReportsView: React.FC = () => {
                         </td>
                         <td className="py-2.5 px-2 text-slate-500">{item.agent.team}</td>
                         <td className="py-2.5 px-2 text-center font-mono">
-                          {item.scoreM5 !== null ? toPersianDigits(item.scoreM5) : '-'}
+                          {item.scoreM1 !== null ? toPersianDigits(item.scoreM1) : '-'}
                         </td>
                         <td className="py-2.5 px-2 text-center font-mono">
-                          {item.scoreM6 !== null ? toPersianDigits(item.scoreM6) : '-'}
+                          {item.scoreM2 !== null ? toPersianDigits(item.scoreM2) : '-'}
                         </td>
                         <td className="py-2.5 px-2 text-center font-mono">
-                          {item.scoreM7 !== null ? toPersianDigits(item.scoreM7) : '-'}
+                          {item.scoreM3 !== null ? toPersianDigits(item.scoreM3) : '-'}
                         </td>
                         <td className="py-2.5 px-2 text-center font-mono font-bold text-rose-600 dark:text-rose-400">
                           {toPersianDigits(item.rollingAvg)}

@@ -18,9 +18,9 @@ import { AuditDetailModal } from '../AuditDetailModal.tsx';
 import { AudioWaveformPlayer } from '../AudioWaveformPlayer.tsx';
 
 export const DisputesQueue: React.FC = () => {
-  const { assessments, agents, resolveDispute, role, currentControllerId } = useApp();
+  const { assessments, agents, resolveDispute, role, currentControllerId, currentUser } = useApp();
 
-  const [filterStatus, setFilterStatus] = useState<'pending' | 'resolved' | 'rejected' | 'all'>('pending');
+  const [filterStatus, setFilterStatus] = useState<'pending' | 'in_review' | 'resolved' | 'rejected' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAudit, setSelectedAudit] = useState<Assessment | null>(null);
 
@@ -63,8 +63,17 @@ export const DisputesQueue: React.FC = () => {
   }, [disputedAudits, filterStatus, searchQuery, agents]);
 
   const pendingCount = disputedAudits.filter((a) => a.dispute?.status === 'pending').length;
+  const inReviewCount = disputedAudits.filter((a) => a.dispute?.status === 'in_review').length;
   const resolvedCount = disputedAudits.filter((a) => a.dispute?.status === 'resolved').length;
   const rejectedCount = disputedAudits.filter((a) => a.dispute?.status === 'rejected').length;
+
+  const handleSetInReview = (auditId: string) => {
+    resolveDispute(
+      auditId,
+      'in_review',
+      'در حال بازشنوایی و بررسی مجدد توسط کنترلر'
+    );
+  };
 
   const handleStartResolve = (audit: Assessment) => {
     setResolvingDisputeId(audit.id);
@@ -115,6 +124,12 @@ export const DisputesQueue: React.FC = () => {
             </span>
             <span className="text-amber-600 dark:text-amber-400 mr-1">در انتظار بررسی</span>
           </div>
+          <div className="px-3 py-1.5 rounded-xl bg-sky-50 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-800 text-xs">
+            <span className="text-sky-800 dark:text-sky-300 font-bold">
+              {toPersianDigits(inReviewCount)}
+            </span>
+            <span className="text-sky-600 dark:text-sky-400 mr-1">در حال بررسی</span>
+          </div>
           <div className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs">
             <span className="text-emerald-800 dark:text-emerald-300 font-bold">
               {toPersianDigits(resolvedCount)}
@@ -133,7 +148,7 @@ export const DisputesQueue: React.FC = () => {
       {/* 2. Filter & Search Controls */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
         {/* Status Pills */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold w-full sm:w-auto">
+        <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold w-full sm:w-auto overflow-x-auto">
           <button
             type="button"
             onClick={() => setFilterStatus('pending')}
@@ -144,6 +159,17 @@ export const DisputesQueue: React.FC = () => {
             }`}
           >
             در انتظار رسیدگی ({toPersianDigits(pendingCount)})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterStatus('in_review')}
+            className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg transition ${
+              filterStatus === 'in_review'
+                ? 'bg-sky-600 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+            }`}
+          >
+            در حال بررسی ({toPersianDigits(inReviewCount)})
           </button>
           <button
             type="button"
@@ -214,6 +240,8 @@ export const DisputesQueue: React.FC = () => {
                       className={`text-xs px-2.5 py-1 rounded-full font-bold ${
                         dispute.status === 'pending'
                           ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                          : dispute.status === 'in_review'
+                          ? 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300'
                           : dispute.status === 'resolved'
                           ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
                           : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
@@ -221,6 +249,8 @@ export const DisputesQueue: React.FC = () => {
                     >
                       {dispute.status === 'pending'
                         ? 'در انتظار بررسی'
+                        : dispute.status === 'in_review'
+                        ? 'در حال بررسی (بازشنوایی)'
                         : dispute.status === 'resolved'
                         ? 'پذیرفته و اصلاح نمره'
                         : 'رد اعتراض'}
@@ -265,8 +295,21 @@ export const DisputesQueue: React.FC = () => {
                       </p>
                     </div>
 
+                    {/* In-Review Status Box */}
+                    {dispute.status === 'in_review' && (
+                      <div className="p-3.5 rounded-xl border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/30 text-xs space-y-1 text-sky-900 dark:text-sky-200">
+                        <div className="font-bold flex items-center gap-1.5">
+                          <Clock className="w-4 h-4 text-sky-600 animate-pulse" />
+                          <span>وضعیت: در حال بازشنوایی و بررسی توسط کنترلر ({dispute.controller_id || audit.controller_id})</span>
+                        </div>
+                        <p className="text-slate-600 dark:text-slate-300">
+                          {dispute.controller_comment || 'کنترلر کیفیت در حال استماع مجدد صوت تماس و بررسی معیارهای مورد اختلاف است.'}
+                        </p>
+                      </div>
+                    )}
+
                     {/* Resolution Result if already decided */}
-                    {dispute.status !== 'pending' && (
+                    {(dispute.status === 'resolved' || dispute.status === 'rejected') && (
                       <div
                         className={`p-3.5 rounded-xl border text-xs space-y-1 ${
                           dispute.status === 'resolved'
@@ -315,17 +358,39 @@ export const DisputesQueue: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Dispute Resolution Actions for Controller */}
-                {dispute.status === 'pending' && (
+                {/* Dispute Resolution Actions for Controller / Supervisor */}
+                {(dispute.status === 'pending' || dispute.status === 'in_review') && (
                   <div className="pt-3 border-t border-slate-100 dark:border-slate-700/60">
-                    {!isResolving ? (
+                    {!(
+                      role === 'qa_supervisor' ||
+                      (role === 'qa_controller' && (
+                        audit.controller_id === currentControllerId ||
+                        audit.controller_id?.toLowerCase() === (currentUser?.username || '').toLowerCase() ||
+                        audit.controller_id === (currentUser?.id || '')
+                      ))
+                    ) ? (
+                      <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2">
+                        <ShieldAlert className="w-4 h-4 shrink-0 text-amber-600" />
+                        <span>تنها کنترلر ارزیابی‌کننده ({audit.controller_id}) یا سوپروایزر کیفیت مجاز به رسیدگی به این اعتراض هستند.</span>
+                      </div>
+                    ) : !isResolving ? (
                       <div className="flex items-center justify-end gap-2">
+                        {dispute.status === 'pending' && (
+                          <button
+                            type="button"
+                            onClick={() => handleSetInReview(audit.id)}
+                            className="px-3.5 py-2 rounded-xl bg-sky-50 dark:bg-sky-950/50 hover:bg-sky-100 border border-sky-300 dark:border-sky-800 text-sky-700 dark:text-sky-300 text-xs font-bold transition flex items-center gap-1.5"
+                          >
+                            <Clock className="w-3.5 h-3.5 text-sky-600" />
+                            <span>شروع بررسی (در حال بررسی)</span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => handleStartResolve(audit)}
                           className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-xs transition"
                         >
-                          تعیین تکلیف و ثبت نتیجه بازشنوایی
+                          {dispute.status === 'in_review' ? 'ثبت نتیجه نهایی بازشنوایی' : 'تعیین تکلیف و ثبت نتیجه'}
                         </button>
                       </div>
                     ) : (

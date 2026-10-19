@@ -16,6 +16,9 @@ import {
   Compass,
   FileSpreadsheet,
   CheckCircle2,
+  Activity,
+  LogOut,
+  LogIn,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
 import { UserRole } from '../types/index.ts';
@@ -42,7 +45,15 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
     currentAgentId,
     setCurrentAgentId,
     agents,
+    currentUser,
+    isAuthenticated,
+    logout,
+    setShowLoginModal,
   } = useApp();
+
+  const isDevRoleSwitch =
+    import.meta.env.VITE_DEV_ROLE_SWITCH === 'true' ||
+    (import.meta.env.DEV && import.meta.env.VITE_DEV_ROLE_SWITCH !== 'false');
 
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -222,100 +233,163 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
                 <span>تنظیمات و رستر</span>
               </button>
             )}
+
+            {/* System Audit Log (QA Controller, Supervisor, Admin) */}
+            {(role === 'qa_controller' || role === 'qa_supervisor' || role === 'admin') && (
+              <button
+                type="button"
+                onClick={() => handleTabClick('system_audit_log')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all whitespace-nowrap ${
+                  activeTab === 'system_audit_log'
+                    ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <Activity className="w-4 h-4" />
+                <span>لاگ ممیزی سیستم</span>
+              </button>
+            )}
           </nav>
 
           {/* Right Action Cluster: Role Switcher & Utilities */}
           <div className="flex items-center gap-2 shrink-0">
-            {/* Quick Role Switcher Button */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setRoleMenuOpen(!roleMenuOpen)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 transition-colors shadow-2xs"
-                title="تغییر نقش کاربری جهت تست آسان تمام امکانات"
-              >
-                <span className={`w-2.5 h-2.5 rounded-full ${ROLE_LABELS[role].color}`} />
-                <span className="font-bold">نقش: {ROLE_LABELS[role].title.split(' ')[0]}</span>
-                {pendingDisputesCount > 0 && role === 'qa_controller' && (
-                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                )}
-              </button>
-
-              {/* Role Dropdown */}
-              {roleMenuOpen && (
-                <div
-                  className="absolute left-0 mt-2 w-72 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xl py-2 z-50 text-right"
-                  onMouseLeave={() => setRoleMenuOpen(false)}
+            {/* Quick Role Switcher Button (Gated behind DEV_ROLE_SWITCH in production) */}
+            {isDevRoleSwitch && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setRoleMenuOpen(!roleMenuOpen)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 transition-colors shadow-2xs"
+                  title="تغییر نقش کاربری جهت تست آسان تمام امکانات (محیط توسعه)"
                 >
-                  <div className="px-3.5 py-2 border-b border-slate-100 dark:border-slate-700/80 mb-1">
-                    <span className="text-[11px] text-slate-400 dark:text-slate-500 font-bold block">
-                      تغییر سریع سطح دسترسی (RBAC Switcher)
-                    </span>
-                    <span className="text-[10px] text-slate-400">
-                      مشاهده دقیق امکانات سامانه از زاویه دید هر کاربر
-                    </span>
-                  </div>
-
-                  {(Object.keys(ROLE_LABELS) as UserRole[]).map((r) => {
-                    const info = ROLE_LABELS[r];
-                    const isSelected = role === r;
-                    return (
-                      <button
-                        key={r}
-                        type="button"
-                        onClick={() => {
-                          setRole(r);
-                          setRoleMenuOpen(false);
-                          if (r === 'agent') setActiveTab('agent_view');
-                          else if (r === 'team_lead') setActiveTab('team_view');
-                          else if (r === 'manager') setActiveTab('manager_view');
-                        }}
-                        className={`w-full text-right px-3.5 py-2.5 flex items-start gap-2.5 transition-colors ${
-                          isSelected
-                            ? 'bg-sky-50 dark:bg-sky-950/50 text-sky-900 dark:text-sky-200 font-medium'
-                            : 'hover:bg-slate-50 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-300'
-                        }`}
-                      >
-                        <span
-                          className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${info.color}`}
-                        />
-                        <div className="flex-1">
-                          <div className="text-xs font-bold flex items-center justify-between">
-                            <span>{info.title}</span>
-                            {isSelected && (
-                              <span className="text-[10px] text-sky-600 dark:text-sky-400 font-bold">
-                                فعال
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
-                            {info.desc}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-
-                  {/* Agent identity select if in agent role */}
-                  {role === 'agent' && (
-                    <div className="p-3 border-t border-slate-100 dark:border-slate-700/80 mt-1 bg-slate-50/50 dark:bg-slate-900/40">
-                      <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 block mb-1">
-                        انتخاب کارشناس فعال جهت نمایش کارنامه:
-                      </label>
-                      <select
-                        value={currentAgentId}
-                        onChange={(e) => setCurrentAgentId(e.target.value)}
-                        className="w-full text-xs p-1.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
-                      >
-                        {agents.map((ag) => (
-                          <option key={ag.id} value={ag.id}>
-                            {ag.name} ({ag.team} - {toPersianDigits(ag.source_id)})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                  <span className={`w-2.5 h-2.5 rounded-full ${ROLE_LABELS[role].color}`} />
+                  <span className="font-bold">نقش: {ROLE_LABELS[role].title.split(' ')[0]}</span>
+                  <span className="text-[9px] font-mono font-bold px-1 py-0.2 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800">
+                    DEV
+                  </span>
+                  {pendingDisputesCount > 0 && role === 'qa_controller' && (
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
                   )}
-                </div>
+                </button>
+
+                {/* Role Dropdown */}
+                {roleMenuOpen && (
+                  <div
+                    className="absolute left-0 mt-2 w-72 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xl py-2 z-50 text-right"
+                    onMouseLeave={() => setRoleMenuOpen(false)}
+                  >
+                    <div className="px-3.5 py-2 border-b border-slate-100 dark:border-slate-700/80 mb-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 font-bold block">
+                          تغییر سریع سطح دسترسی
+                        </span>
+                        <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                          DEV_ROLE_SWITCH
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-400">
+                        مشاهده دقیق امکانات سامانه از زاویه دید هر کاربر
+                      </span>
+                    </div>
+
+                    {(Object.keys(ROLE_LABELS) as UserRole[]).map((r) => {
+                      const info = ROLE_LABELS[r];
+                      const isSelected = role === r;
+                      return (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => {
+                            setRole(r);
+                            setRoleMenuOpen(false);
+                            if (r === 'agent') setActiveTab('agent_view');
+                            else if (r === 'team_lead') setActiveTab('team_view');
+                            else if (r === 'manager') setActiveTab('manager_view');
+                          }}
+                          className={`w-full text-right px-3.5 py-2.5 flex items-start gap-2.5 transition-colors ${
+                            isSelected
+                              ? 'bg-sky-50 dark:bg-sky-950/50 text-sky-900 dark:text-sky-200 font-medium'
+                              : 'hover:bg-slate-50 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-300'
+                          }`}
+                        >
+                          <span
+                            className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${info.color}`}
+                          />
+                          <div className="flex-1">
+                            <div className="text-xs font-bold flex items-center justify-between">
+                              <span>{info.title}</span>
+                              {isSelected && (
+                                <span className="text-[10px] text-sky-600 dark:text-sky-400 font-bold">
+                                  فعال
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                              {info.desc}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+
+                    {/* Agent identity select if in agent role */}
+                    {role === 'agent' && (
+                      <div className="p-3 border-t border-slate-100 dark:border-slate-700/80 mt-1 bg-slate-50/50 dark:bg-slate-900/40">
+                        <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 block mb-1">
+                          انتخاب کارشناس فعال جهت نمایش کارنامه:
+                        </label>
+                        <select
+                          value={currentAgentId}
+                          onChange={(e) => setCurrentAgentId(e.target.value)}
+                          className="w-full text-xs p-1.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
+                        >
+                          {agents.map((ag) => (
+                            <option key={ag.id} value={ag.id}>
+                              {ag.name} ({ag.team} - {toPersianDigits(ag.source_id)})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* User Profile Pill & Login / Logout */}
+            <div className="flex items-center gap-1.5 pl-1 border-l border-slate-200 dark:border-slate-800">
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold"
+                title={`کاربر: ${currentUser?.name || ''} (${currentUser?.username || ''})`}
+              >
+                <span className={`w-2 h-2 rounded-full ${ROLE_LABELS[role].color}`} />
+                <span className="font-bold text-slate-800 dark:text-slate-200 hidden sm:inline max-w-[110px] truncate">
+                  {currentUser?.name || 'کاربر'}
+                </span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold border border-slate-200/60 dark:border-slate-600">
+                  {ROLE_LABELS[role].title.split(' ')[0]}
+                </span>
+              </div>
+
+              {isAuthenticated ? (
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="p-1.5 rounded-xl text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
+                  title="خروج از حساب کاربری"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowLoginModal(true)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-xs transition cursor-pointer"
+                  title="ورود با نام کاربری و رمز عبور"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>ورود</span>
+                </button>
               )}
             </div>
 

@@ -22,6 +22,8 @@ import {
   formatScoreBadge,
   isWithinDisputeWindow,
   JALALI_MONTHS,
+  dateToJalali,
+  formatJalaliDate,
 } from '../../utils/persian.ts';
 import { calculateAgentMonthlyScore } from '../../utils/scoring.ts';
 import { DisputeModal } from '../disputes/DisputeModal.tsx';
@@ -35,6 +37,7 @@ export const AgentDashboard: React.FC = () => {
     submitDispute,
     supportRubric,
     salesRubric,
+    settings,
   } = useApp();
 
   const [selectedAudit, setSelectedAudit] = useState<Assessment | null>(null);
@@ -50,14 +53,32 @@ export const AgentDashboard: React.FC = () => {
     [assessments, agent?.id]
   );
 
-  // Month 07 (Mehr) audits
+  // Dynamically derive current Jalali year and month from assessments
+  const { targetYear, targetMonth } = useMemo(() => {
+    if (assessments.length > 0) {
+      const dates = assessments.map((a) =>
+        a.check_date_year && a.check_date_month_num
+          ? { year: a.check_date_year, month: a.check_date_month_num }
+          : dateToJalali(a.check_date)
+      );
+      dates.sort((a, b) => b.year * 100 + b.month - (a.year * 100 + a.month));
+      return { targetYear: dates[0].year, targetMonth: dates[0].month };
+    }
+    const nowJ = dateToJalali(new Date());
+    return { targetYear: nowJ.year, targetMonth: nowJ.month };
+  }, [assessments]);
+
+  // Current Jalali month audits
   const currentMonthAudits = useMemo(() => {
     const list = agentAudits.filter((a) => {
-      const d = toEnglishDigits(a.check_date);
-      return d.includes('/07/') || d.includes('/7/') || a.check_date.includes('۰۷');
+      const j =
+        a.check_date_year && a.check_date_month_num
+          ? { year: a.check_date_year, month: a.check_date_month_num }
+          : dateToJalali(a.check_date);
+      return j.year === targetYear && j.month === targetMonth;
     });
     return list.length > 0 ? list : agentAudits;
-  }, [agentAudits]);
+  }, [agentAudits, targetYear, targetMonth]);
 
   const currentMonthScores = currentMonthAudits.map((a) => a.total_score);
   const currentMonthFrauds = currentMonthAudits.filter((a) => a.is_fraud).length;
@@ -67,21 +88,19 @@ export const AgentDashboard: React.FC = () => {
     currentMonthFrauds
   );
 
-  // 3-Month Rolling Average
+  // 3-Month Rolling Average (derived mathematically from Jalali calendar)
   const threeMonthAudits = useMemo(() => {
+    const targetVal = targetYear * 12 + targetMonth;
     const list = agentAudits.filter((a) => {
-      const d = toEnglishDigits(a.check_date);
-      return (
-        d.includes('/07/') ||
-        d.includes('/06/') ||
-        d.includes('/05/') ||
-        a.check_date.includes('۰۷') ||
-        a.check_date.includes('۰۶') ||
-        a.check_date.includes('۰۵')
-      );
+      const j =
+        a.check_date_year && a.check_date_month_num
+          ? { year: a.check_date_year, month: a.check_date_month_num }
+          : dateToJalali(a.check_date);
+      const val = j.year * 12 + j.month;
+      return val > targetVal - 3 && val <= targetVal;
     });
     return list.length > 0 ? list : agentAudits;
-  }, [agentAudits]);
+  }, [agentAudits, targetYear, targetMonth]);
 
   const threeMonthAvg = useMemo(() => {
     if (threeMonthAudits.length === 0) return currentMonthAvg || 92;
@@ -94,14 +113,18 @@ export const AgentDashboard: React.FC = () => {
   const currentReviewsCount = currentMonthAudits.length;
   const targetPercent = Math.min(100, Math.round((currentReviewsCount / targetReviews) * 100));
 
-  // Team Ranking
+  // Team Ranking (dynamically based on current month)
   const teamRank = useMemo(() => {
     const teamAgents = agents.filter((a) => a.team === agent?.team);
     const sorted = teamAgents
       .map((ag) => {
-        const audits = assessments.filter(
-          (a) => a.agent_id === ag.id && a.check_date.includes('/07/')
-        );
+        const audits = assessments.filter((a) => {
+          const j =
+            a.check_date_year && a.check_date_month_num
+              ? { year: a.check_date_year, month: a.check_date_month_num }
+              : dateToJalali(a.check_date);
+          return a.agent_id === ag.id && j.year === targetYear && j.month === targetMonth;
+        });
         const scores = audits.map((a) => a.total_score);
         const avg = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
         return { id: ag.id, avg };
@@ -110,7 +133,7 @@ export const AgentDashboard: React.FC = () => {
 
     const rankIdx = sorted.findIndex((s) => s.id === agent?.id);
     return rankIdx >= 0 ? rankIdx + 1 : 1;
-  }, [agents, assessments, agent?.id, agent?.team]);
+  }, [agents, assessments, agent?.id, agent?.team, targetYear, targetMonth]);
 
   // "کجا نمره از دست دادم؟ (Top Point-Losing Criteria)"
   const pointLosingCriteria = useMemo(() => {
@@ -174,6 +197,44 @@ export const AgentDashboard: React.FC = () => {
   // Max points lost for horizontal bar percentage
   const maxLost = pointLosingCriteria[0]?.lostPoints || 1;
 
+  // Dynamic 3-Month breakdown for historical quality trend
+  const threeMonthBreakdown = useMemo(() => {
+    const result = [];
+    for (let offset = 2; offset >= 0; offset--) {
+      let m = targetMonth - offset;
+      let y = targetYear;
+      if (m <= 0) {
+        m += 12;
+        y -= 1;
+      }
+      const mName = JALALI_MONTHS[m - 1] || `ماه ${m}`;
+      const isCurrent = offset === 0;
+      const audits = agentAudits.filter((a) => {
+        const j =
+          a.check_date_year && a.check_date_month_num
+            ? { year: a.check_date_year, month: a.check_date_month_num }
+            : dateToJalali(a.check_date);
+        return j.year === y && j.month === m;
+      });
+
+      const scores = audits.map((a) => a.total_score);
+      const frauds = audits.filter((a) => a.is_fraud).length;
+      const score =
+        scores.length > 0
+          ? calculateAgentMonthlyScore(scores, frauds)
+          : isCurrent
+          ? currentMonthAvg || 92
+          : 90;
+
+      result.push({
+        month: `${mName} ${toPersianDigits(y)}${isCurrent ? ' (جاری)' : ''}`,
+        score,
+        count: audits.length,
+      });
+    }
+    return result;
+  }, [agentAudits, targetYear, targetMonth, currentMonthAvg]);
+
   // Filtered table list
   const filteredAudits = useMemo(() => {
     if (!searchQuery) return agentAudits;
@@ -183,7 +244,9 @@ export const AgentDashboard: React.FC = () => {
         a.id.toLowerCase().includes(q) ||
         (a.vendor_title && a.vendor_title.includes(q)) ||
         (a.ticket_number && a.ticket_number.includes(q)) ||
-        a.check_date.includes(q)
+        a.check_date.toLowerCase().includes(q) ||
+        (a.check_date_jalali && a.check_date_jalali.includes(q)) ||
+        (a.check_date_jalali_plain && a.check_date_jalali_plain.includes(q))
     );
   }, [agentAudits, searchQuery]);
 
@@ -340,11 +403,7 @@ export const AgentDashboard: React.FC = () => {
           </div>
 
           <div className="space-y-4 pt-2">
-            {[
-              { month: 'مرداد ۱۴۰۳', score: 90, count: 42 },
-              { month: 'شهریور ۱۴۰۳', score: 95, count: 45 },
-              { month: 'مهر ۱۴۰۳ (جاری)', score: currentMonthAvg || 92, count: currentMonthAudits.length || 18 },
-            ].map((m) => (
+            {threeMonthBreakdown.map((m) => (
               <div key={m.month} className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
                 <div>
                   <div className="font-bold text-slate-800 dark:text-slate-200">{m.month}</div>
@@ -406,7 +465,7 @@ export const AgentDashboard: React.FC = () => {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
               {filteredAudits.map((item) => {
                 const badge = formatScoreBadge(item.total_score);
-                const canDispute = isWithinDisputeWindow(item.created_at, 3);
+                const canDispute = isWithinDisputeWindow(item.created_at, settings?.dispute_window_days ?? 3);
                 const dispute = item.dispute;
 
                 return (
@@ -418,8 +477,8 @@ export const AgentDashboard: React.FC = () => {
                     <td className="py-3 px-3 font-mono font-bold text-slate-800 dark:text-slate-200">
                       {item.id}
                     </td>
-                    <td className="py-3 px-3 text-slate-600 dark:text-slate-300">
-                      {toPersianDigits(item.check_date)}
+                    <td className="py-3 px-3 text-slate-600 dark:text-slate-300 font-mono">
+                      {item.check_date_jalali || formatJalaliDate(item.check_date)}
                     </td>
                     <td className="py-3 px-3">
                       <div className="font-semibold text-slate-800 dark:text-slate-200">

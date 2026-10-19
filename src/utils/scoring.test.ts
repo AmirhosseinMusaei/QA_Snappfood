@@ -4,9 +4,12 @@ import {
   calculateSalesMistakeScore,
   getDefaultSupportScores,
   getDefaultSalesScores,
+  getDefaultScoresForRubric,
   calculateSupportTotal,
   calculateSalesTotal,
   calculateAgentMonthlyScore,
+  validateScores,
+  getAllRubricItems,
   SUPPORT_RUBRIC,
   SALES_RUBRIC,
 } from './scoring.ts';
@@ -119,4 +122,53 @@ test('Monthly score rule: 0 frauds = raw average, 1 fraud = -10, >1 fraud = 0', 
   assert.equal(calculateAgentMonthlyScore(sampleScores, 1), 80);
   assert.equal(calculateAgentMonthlyScore(sampleScores, 2), 0);
   assert.equal(calculateAgentMonthlyScore(sampleScores, 3), 0);
+});
+
+test('validateScores returns valid when all items have explicit scores in range [0, maxPoints]', () => {
+  const defaultScores = getDefaultSupportScores();
+  const res = validateScores(SUPPORT_RUBRIC, defaultScores);
+  assert.equal(res.isValid, true);
+  assert.equal(res.missingItems.length, 0);
+  assert.equal(res.outOfRangeItems.length, 0);
+  assert.equal(res.error, undefined);
+});
+
+test('validateScores rejects missing items (an item without recorded score is a validation error)', () => {
+  const partialScores: Record<string, number> = {
+    start_greeting: 1,
+    start_agent_name: 1,
+  };
+  const res = validateScores(SUPPORT_RUBRIC, partialScores);
+  assert.equal(res.isValid, false);
+  assert.ok(res.missingItems.length > 0);
+  assert.ok(res.error?.includes('معیار فاقد نمره ثبت‌شده'));
+
+  // Ensure missing items include specific omitted IDs like 'empathy_sympathy'
+  const hasEmpathy = res.missingItems.some((it) => it.id === 'empathy_sympathy');
+  assert.equal(hasEmpathy, true);
+});
+
+test('validateScores rejects out-of-range scores (> maxPoints or negative)', () => {
+  const scores = getDefaultSupportScores();
+  // start_greeting maxPoints is 1; set to 5
+  scores['start_greeting'] = 5;
+  // polite_warmth maxPoints is 5; set to -1
+  scores['polite_warmth'] = -1;
+
+  const res = validateScores(SUPPORT_RUBRIC, scores);
+  assert.equal(res.isValid, false);
+  assert.equal(res.outOfRangeItems.length, 2);
+  assert.ok(res.error?.includes('خارج از بازه مجاز'));
+});
+
+test('Scoring functions support custom/versioned rubrics', () => {
+  // Simulate a version 2 rubric where points differ
+  const customRubric = JSON.parse(JSON.stringify(SUPPORT_RUBRIC));
+  customRubric[0].criteria[0].items[0].maxPoints = 10; // start_greeting = 10 instead of 1
+
+  const defaultScoresV2 = getDefaultScoresForRubric(customRubric);
+  assert.equal(defaultScoresV2['start_greeting'], 10);
+
+  const validation = validateScores(customRubric, defaultScoresV2);
+  assert.equal(validation.isValid, true);
 });

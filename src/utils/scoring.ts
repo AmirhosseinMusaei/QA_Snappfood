@@ -330,11 +330,46 @@ export function calculateSalesMistakeScore(mistakes: number): number {
 }
 
 /**
- * Build default full scores object for Support form (all items checked/full score)
+ * Get all flat sub-items from a rubric definition
  */
-export function getDefaultSupportScores(): Record<string, number> {
+export function getAllRubricItems(rubric: RubricSection[]): Array<{
+  id: string;
+  title: string;
+  maxPoints: number;
+  sectionId: string;
+  criterionId: string;
+}> {
+  const items: Array<{
+    id: string;
+    title: string;
+    maxPoints: number;
+    sectionId: string;
+    criterionId: string;
+  }> = [];
+
+  rubric.forEach((section) => {
+    section.criteria.forEach((crit) => {
+      crit.items.forEach((item) => {
+        items.push({
+          id: item.id,
+          title: item.title,
+          maxPoints: item.maxPoints,
+          sectionId: section.id,
+          criterionId: crit.id,
+        });
+      });
+    });
+  });
+
+  return items;
+}
+
+/**
+ * Build default full scores object for any given rubric (all items checked/full score)
+ */
+export function getDefaultScoresForRubric(rubric: RubricSection[]): Record<string, number> {
   const scores: Record<string, number> = {};
-  SUPPORT_RUBRIC.forEach((section) => {
+  rubric.forEach((section) => {
     section.criteria.forEach((crit) => {
       crit.items.forEach((item) => {
         scores[item.id] = item.maxPoints;
@@ -342,47 +377,134 @@ export function getDefaultSupportScores(): Record<string, number> {
     });
   });
   return scores;
+}
+
+/**
+ * Build default full scores object for Support form (all items checked/full score)
+ */
+export function getDefaultSupportScores(rubric: RubricSection[] = SUPPORT_RUBRIC): Record<string, number> {
+  return getDefaultScoresForRubric(rubric);
 }
 
 /**
  * Build default full scores object for Sales form (all soft/script items checked)
  */
-export function getDefaultSalesScores(): Record<string, number> {
-  const scores: Record<string, number> = {};
-  SALES_RUBRIC.forEach((section) => {
-    section.criteria.forEach((crit) => {
-      crit.items.forEach((item) => {
-        scores[item.id] = item.maxPoints;
-      });
-    });
-  });
-  return scores;
+export function getDefaultSalesScores(rubric: RubricSection[] = SALES_RUBRIC): Record<string, number> {
+  return getDefaultScoresForRubric(rubric);
+}
+
+export interface ScoreValidationResult {
+  isValid: boolean;
+  missingItems: Array<{ id: string; title: string; maxPoints: number }>;
+  outOfRangeItems: Array<{ id: string; title: string; score: number; maxPoints: number }>;
+  error?: string;
 }
 
 /**
- * Calculate total score for Support form
+ * Validate that every rubric item has an explicit recorded score and that all scores are in [0, maxPoints].
+ * Items without a recorded score or with out-of-range values are flagged as errors.
+ */
+export function validateScores(
+  rubric: RubricSection[],
+  scores: Record<string, number> | undefined | null
+): ScoreValidationResult {
+  const missingItems: Array<{ id: string; title: string; maxPoints: number }> = [];
+  const outOfRangeItems: Array<{ id: string; title: string; score: number; maxPoints: number }> = [];
+
+  if (!scores || typeof scores !== 'object') {
+    const all = getAllRubricItems(rubric);
+    return {
+      isValid: false,
+      missingItems: all.map((it) => ({ id: it.id, title: it.title, maxPoints: it.maxPoints })),
+      outOfRangeItems: [],
+      error: 'هیچ نمره‌ای برای ارزیابی ثبت نشده است (Scores object is missing)',
+    };
+  }
+
+  rubric.forEach((section) => {
+    section.criteria.forEach((crit) => {
+      crit.items.forEach((item) => {
+        const val = scores[item.id];
+        // Must be an explicit recorded number (not undefined, null, or NaN)
+        if (val === undefined || val === null || typeof val !== 'number' || Number.isNaN(val)) {
+          missingItems.push({ id: item.id, title: item.title, maxPoints: item.maxPoints });
+        } else if (val < 0 || val > item.maxPoints) {
+          outOfRangeItems.push({
+            id: item.id,
+            title: item.title,
+            score: val,
+            maxPoints: item.maxPoints,
+          });
+        }
+      });
+    });
+  });
+
+  if (missingItems.length > 0) {
+    const titles = missingItems.map((m) => `"${m.title}"`).slice(0, 3).join('، ');
+    const extra = missingItems.length > 3 ? ` و ${missingItems.length - 3} مورد دیگر` : '';
+    return {
+      isValid: false,
+      missingItems,
+      outOfRangeItems,
+      error: `تعداد ${missingItems.length} معیار فاقد نمره ثبت‌شده هستند: ${titles}${extra}`,
+    };
+  }
+
+  if (outOfRangeItems.length > 0) {
+    const details = outOfRangeItems
+      .map((o) => `"${o.title}" (نمره: ${o.score} / سقف: ${o.maxPoints})`)
+      .slice(0, 3)
+      .join('، ');
+    return {
+      isValid: false,
+      missingItems,
+      outOfRangeItems,
+      error: `نمره خارج از بازه مجاز برای معیارهای: ${details}`,
+    };
+  }
+
+  return {
+    isValid: true,
+    missingItems: [],
+    outOfRangeItems: [],
+  };
+}
+
+/**
+ * Calculate total score for Support form.
+ * Validates that every item has an explicit recorded score within [0, maxPoints].
  */
 export function calculateSupportTotal(
   scores: Record<string, number>,
   isFraud: boolean,
-  isCriticalFault: boolean
+  isCriticalFault: boolean,
+  rubric: RubricSection[] = SUPPORT_RUBRIC
 ): { total: number; softSkill: number; knowledge: number } {
   if (isFraud || isCriticalFault) {
     return { total: 0, softSkill: 0, knowledge: 0 };
   }
 
+  const validation = validateScores(rubric, scores);
+  if (!validation.isValid) {
+    throw new Error(validation.error || 'خطای اعتبارسنجی نمرات فرم پشتیبانی');
+  }
+
   let softSkill = 0;
   let knowledge = 0;
 
-  SUPPORT_RUBRIC.forEach((section) => {
+  rubric.forEach((section) => {
     let sectionSum = 0;
     section.criteria.forEach((crit) => {
       crit.items.forEach((item) => {
-        sectionSum += scores[item.id] !== undefined ? scores[item.id] : item.maxPoints;
+        sectionSum += scores[item.id];
       });
     });
-    if (section.id === 'support_soft_skill') softSkill = sectionSum;
-    else if (section.id === 'support_knowledge') knowledge = sectionSum;
+    if (section.id === 'support_soft_skill' || section.id.includes('soft')) {
+      softSkill += sectionSum;
+    } else {
+      knowledge += sectionSum;
+    }
   });
 
   const total = Math.min(100, Math.max(0, softSkill + knowledge));
@@ -390,30 +512,40 @@ export function calculateSupportTotal(
 }
 
 /**
- * Calculate total score for Sales form
+ * Calculate total score for Sales form.
+ * Validates that every item has an explicit recorded score within [0, maxPoints].
  */
 export function calculateSalesTotal(
   scores: Record<string, number>,
   mistakes: number,
   isFraud: boolean,
-  isCriticalFault: boolean
+  isCriticalFault: boolean,
+  rubric: RubricSection[] = SALES_RUBRIC
 ): { total: number; softSkill: number; script: number; mistakeScore: number } {
   if (isFraud || isCriticalFault) {
     return { total: 0, softSkill: 0, script: 0, mistakeScore: 0 };
   }
 
+  const validation = validateScores(rubric, scores);
+  if (!validation.isValid) {
+    throw new Error(validation.error || 'خطای اعتبارسنجی نمرات فرم فروش');
+  }
+
   let softSkill = 0;
   let script = 0;
 
-  SALES_RUBRIC.forEach((section) => {
+  rubric.forEach((section) => {
     let sectionSum = 0;
     section.criteria.forEach((crit) => {
       crit.items.forEach((item) => {
-        sectionSum += scores[item.id] !== undefined ? scores[item.id] : item.maxPoints;
+        sectionSum += scores[item.id];
       });
     });
-    if (section.id === 'sales_soft_skill') softSkill = sectionSum;
-    else if (section.id === 'sales_script') script = sectionSum;
+    if (section.id === 'sales_soft_skill' || section.id.includes('soft')) {
+      softSkill += sectionSum;
+    } else {
+      script += sectionSum;
+    }
   });
 
   const mistakeScore = calculateSalesMistakeScore(mistakes);

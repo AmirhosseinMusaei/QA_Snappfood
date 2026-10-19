@@ -18,7 +18,14 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { DepartmentType, Agent } from '../../types/index.ts';
-import { toPersianDigits, toEnglishDigits, formatScoreBadge } from '../../utils/persian.ts';
+import {
+  toPersianDigits,
+  toEnglishDigits,
+  formatScoreBadge,
+  dateToJalali,
+  JALALI_MONTHS,
+} from '../../utils/persian.ts';
+import { exportMonthlyScoresToExcel } from '../../utils/exportExcel.ts';
 import { TeamTrendChart } from '../charts/TeamTrendChart.tsx';
 
 export const ManagerDashboard: React.FC = () => {
@@ -30,30 +37,58 @@ export const ManagerDashboard: React.FC = () => {
     assessments,
     faults,
     controllers,
+    settings,
   } = useApp();
 
   const [selectedDept, setSelectedDept] = useState<DepartmentType | 'all'>(currentManagerDept);
   const [timePeriod, setTimePeriod] = useState<'current_month' | 'three_months'>('current_month');
   const [selectedTeamFilter, setSelectedTeamFilter] = useState<string>('all');
 
-  // Filter assessments based on period and dept
+  // Derive target Jalali year and month dynamically from assessments or current date
+  const { targetYear, targetMonth, currentMonthName, prev2MonthName } = useMemo(() => {
+    let y = 1403;
+    let m = 7;
+    if (assessments.length > 0) {
+      const dates = assessments.map((a) => {
+        if (a.check_date_year && a.check_date_month_num) {
+          return { year: a.check_date_year, month: a.check_date_month_num };
+        }
+        return dateToJalali(a.check_date);
+      });
+      dates.sort((a, b) => b.year * 100 + b.month - (a.year * 100 + a.month));
+      y = dates[0].year;
+      m = dates[0].month;
+    } else {
+      const nowJ = dateToJalali(new Date());
+      y = nowJ.year;
+      m = nowJ.month;
+    }
+
+    const curName = JALALI_MONTHS[m - 1] || `ماه ${m}`;
+    const p2M = ((m - 3 + 12) % 12) + 1;
+    const p2Name = JALALI_MONTHS[p2M - 1] || `ماه ${p2M}`;
+
+    return { targetYear: y, targetMonth: m, currentMonthName: curName, prev2MonthName: p2Name };
+  }, [assessments]);
+
+  // Filter assessments based on derived Jalali period and dept (zero string parsing)
   const periodAssessments = useMemo(() => {
+    const targetVal = targetYear * 12 + targetMonth;
+
     return assessments.filter((a) => {
-      const d = toEnglishDigits(a.check_date);
+      const j =
+        a.check_date_year && a.check_date_month_num
+          ? { year: a.check_date_year, month: a.check_date_month_num }
+          : dateToJalali(a.check_date);
+
+      const aVal = j.year * 12 + j.month;
+
       // Period filter
       if (timePeriod === 'current_month') {
-        const isCurrent = d.includes('/07/') || d.includes('/7/') || a.check_date.includes('۰۷');
-        if (!isCurrent) return false;
+        if (aVal !== targetVal) return false;
       } else {
-        // 3 months (05, 06, 07)
-        const is3M =
-          d.includes('/07/') ||
-          d.includes('/06/') ||
-          d.includes('/05/') ||
-          a.check_date.includes('۰۷') ||
-          a.check_date.includes('۰۶') ||
-          a.check_date.includes('۰۵');
-        if (!is3M) return false;
+        // 3 months rolling up to target
+        if (aVal <= targetVal - 3 || aVal > targetVal) return false;
       }
 
       // Dept filter
@@ -61,7 +96,7 @@ export const ManagerDashboard: React.FC = () => {
 
       return true;
     });
-  }, [assessments, timePeriod, selectedDept]);
+  }, [assessments, timePeriod, selectedDept, targetYear, targetMonth]);
 
   // Overall Quality Average
   const overallAvg = useMemo(() => {
@@ -77,6 +112,7 @@ export const ManagerDashboard: React.FC = () => {
   }, [teams, selectedDept]);
 
   const teamStats = useMemo(() => {
+    const minReviewsPerAgent = settings?.min_monthly_reviews_default ?? 40;
     return deptTeams.map((team) => {
       const teamAgentsList = agents.filter((a) => a.team === team.name);
       const teamAgentIds = teamAgentsList.map((a) => a.id);
@@ -87,7 +123,7 @@ export const ManagerDashboard: React.FC = () => {
           ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10
           : 0;
 
-      const totalTarget = teamAgentIds.length * 40;
+      const totalTarget = teamAgentIds.length * minReviewsPerAgent;
       const coveragePercent =
         totalTarget > 0 ? Math.round((teamAudits.length / totalTarget) * 100) : 0;
 
@@ -99,10 +135,13 @@ export const ManagerDashboard: React.FC = () => {
         coveragePercent,
       };
     });
-  }, [deptTeams, agents, periodAssessments]);
+  }, [deptTeams, agents, periodAssessments, settings]);
 
-  // High Quality (>= 95) vs Low Quality (< 80) Agent Classification
+  // Dynamic High Quality vs Low Quality Agent Classification using Settings table
   const { highQualityAgents, lowQualityAgents } = useMemo(() => {
+    const highThreshold = settings?.high_quality_threshold ?? 95;
+    const lowThreshold = settings?.low_quality_threshold ?? 80;
+
     const relevantAgents =
       selectedDept === 'all'
         ? agents
@@ -120,9 +159,9 @@ export const ManagerDashboard: React.FC = () => {
       const scores = agentAudits.map((a) => a.total_score);
       const avg = Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10;
 
-      if (avg >= 95) {
+      if (avg >= highThreshold) {
         high.push({ agent: ag, avg, auditCount: agentAudits.length });
-      } else if (avg < 80) {
+      } else if (avg < lowThreshold) {
         low.push({ agent: ag, avg, auditCount: agentAudits.length });
       }
     });
@@ -131,7 +170,7 @@ export const ManagerDashboard: React.FC = () => {
       highQualityAgents: high.sort((a, b) => b.avg - a.avg),
       lowQualityAgents: low.sort((a, b) => a.avg - b.avg),
     };
-  }, [agents, selectedDept, selectedTeamFilter, periodAssessments]);
+  }, [agents, selectedDept, selectedTeamFilter, periodAssessments, settings]);
 
   // Root Cause: Support Fault Categories Distribution
   const supportCategoryStats = useMemo(() => {
@@ -333,7 +372,7 @@ export const ManagerDashboard: React.FC = () => {
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
-              ماه جاری (مهر)
+              ماه جاری ({currentMonthName})
             </button>
             <button
               type="button"
@@ -344,7 +383,7 @@ export const ManagerDashboard: React.FC = () => {
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
-              تحلیل ۳ ماهه (مرداد تا مهر)
+              تحلیل ۳ ماهه ({prev2MonthName} تا {currentMonthName})
             </button>
           </div>
 
@@ -501,6 +540,16 @@ export const ManagerDashboard: React.FC = () => {
               <option value="NCR">NCR</option>
               <option value="Vendor Success">Vendor Success</option>
             </select>
+
+            <button
+              type="button"
+              onClick={() => exportMonthlyScoresToExcel(agents, assessments, teams, settings)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:hover:bg-emerald-900 border border-emerald-300 dark:border-emerald-800 text-xs font-semibold transition"
+              title="خروجی فایل اکسل (.xlsx) عملکرد و نمرات ماهانه کارشناسان"
+            >
+              <Download className="w-4 h-4 text-emerald-600" />
+              <span>خروجی اکسل (.xlsx)</span>
+            </button>
 
             <button
               type="button"

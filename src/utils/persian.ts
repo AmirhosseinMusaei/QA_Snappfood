@@ -1,5 +1,6 @@
 /**
  * Persian language, typography, digits, and Jalali date helpers
+ * Native Intl-powered Gregorian UTC <-> Jalali conversion
  */
 
 // Convert Latin digits to Persian digits (0-9 -> ۰-۹)
@@ -11,10 +12,10 @@ export function toPersianDigits(input: number | string | undefined | null): stri
 }
 
 // Convert Persian digits to Latin digits
-export function toEnglishDigits(input: string): string {
-  if (!input) return '';
+export function toEnglishDigits(input: string | number | undefined | null): string {
+  if (input === undefined || input === null) return '';
   const persianDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
-  let str = input;
+  let str = String(input);
   for (let i = 0; i < 10; i++) {
     str = str.replace(new RegExp(persianDigits[i], 'g'), String(i));
   }
@@ -41,36 +42,173 @@ export const JALALI_MONTHS = [
  */
 export function gregorianToJalali(gy: number, gm: number, gd: number): [number, number, number] {
   const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
-  let jy = (gy <= 1600) ? 0 : 979;
-  gy -= (gy <= 1600) ? 621 : 1600;
-  const gy2 = (gm > 2) ? (gy + 1) : gy;
-  let days = (365 * gy) + Math.floor((gy2 + 3) / 4) - Math.floor((gy2 + 99) / 100)
-    + Math.floor((gy2 + 399) / 400) - 80 + gd + g_d_m[gm - 1];
+  let jy = gy <= 1600 ? 0 : 979;
+  gy -= gy <= 1600 ? 621 : 1600;
+  const gy2 = gm > 2 ? gy + 1 : gy;
+  let days =
+    365 * gy +
+    Math.floor((gy2 + 3) / 4) -
+    Math.floor((gy2 + 99) / 100) +
+    Math.floor((gy2 + 399) / 400) -
+    80 +
+    gd +
+    g_d_m[gm - 1];
   jy += 33 * Math.floor(days / 12053);
   days %= 12053;
   jy += 4 * Math.floor(days / 1461);
   days %= 1461;
   jy += Math.floor((days - 1) / 365);
   if (days > 0) days = (days - 1) % 365;
-  const jm = (days < 186) ? 1 + Math.floor(days / 31) : 7 + Math.floor((days - 186) / 30);
-  const jd = 1 + ((days < 186) ? (days % 31) : ((days - 186) % 30));
+  const jm = days < 186 ? 1 + Math.floor(days / 31) : 7 + Math.floor((days - 186) / 30);
+  const jd = 1 + (days < 186 ? days % 31 : (days - 186) % 30);
   return [jy, jm, jd];
 }
 
 /**
- * Get current Jalali date formatted as YYYY/MM/DD (Persian numbers optional)
+ * Standard Jalali to Gregorian UTC converter
  */
-export function getJalaliDateString(date: Date = new Date()): string {
-  const gy = date.getFullYear();
-  const gm = date.getMonth() + 1;
-  const gd = date.getDate();
-  const [jy, jm, jd] = gregorianToJalali(gy, gm, gd);
-  const mm = jm < 10 ? `0${jm}` : `${jm}`;
-  const dd = jd < 10 ? `0${jd}` : `${jd}`;
-  return `${jy}/${mm}/${dd}`;
+export function jalaliToGregorianUTC(jy: number, jm: number, jd: number): Date {
+  let sal_a, gy, gm, gd, days;
+  jy += 1595;
+  days =
+    -355668 +
+    365 * jy +
+    Math.floor(jy / 33) * 8 +
+    Math.floor(((jy % 33) + 3) / 4) +
+    jd +
+    (jm < 7 ? (jm - 1) * 31 : (jm - 7) * 30 + 186);
+  gy = 400 * Math.floor(days / 146097);
+  days %= 146097;
+  if (days > 36524) {
+    gy += 100 * Math.floor(--days / 36524);
+    days %= 36524;
+    if (days >= 365) days++;
+  }
+  gy += 4 * Math.floor(days / 1461);
+  days %= 1461;
+  if (days > 365) {
+    gy += Math.floor((days - 1) / 365);
+    days = (days - 1) % 365;
+  }
+  gd = days + 1;
+  sal_a = [0, 31, (gy % 4 === 0 && gy % 100 !== 0) || gy % 400 === 0 ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  for (gm = 0; gm < 13 && gd > sal_a[gm]; gm++) gd -= sal_a[gm];
+  return new Date(Date.UTC(gy, gm - 1, gd));
 }
 
-export function formatScoreBadge(score: number): {
+/**
+ * Universal date parser: parses Gregorian ISO strings, Date objects, epoch numbers,
+ * or Jalali strings e.g. "۱۴۰۳/۰۷/۲۲" or "1403/07/22"
+ */
+export function parseJalaliOrGregorianDate(input: any): Date {
+  if (!input) return new Date();
+  if (input instanceof Date && !isNaN(input.getTime())) return input;
+  const str = toEnglishDigits(String(input)).trim();
+  if (
+    str.includes('/') ||
+    (str.includes('-') &&
+      !str.includes('T') &&
+      str.split('-')[0].length === 4 &&
+      parseInt(str.split('-')[0], 10) < 1900)
+  ) {
+    const parts = str.split(/[/-]/).map((s) => parseInt(s, 10));
+    if (parts.length >= 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
+      return jalaliToGregorianUTC(parts[0], parts[1], parts[2]);
+    }
+  }
+  const parsed = new Date(str);
+  return isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+export interface DerivedJalaliDate {
+  year: number;
+  month: number;
+  day: number;
+  monthName: string;
+  jalaliStr: string; // "1403/07/22"
+  persianJalaliStr: string; // "۱۴۰۳/۰۷/۲۲"
+  isoUtc: string;
+}
+
+/**
+ * Derive Jalali date, month, and formatted display strings on the fly from a Gregorian UTC DateTime
+ */
+export function dateToJalali(dateInput: any): DerivedJalaliDate {
+  const d = parseJalaliOrGregorianDate(dateInput);
+  try {
+    const parts = new Intl.DateTimeFormat('en-US-u-ca-persian', {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      timeZone: 'UTC',
+    }).formatToParts(d);
+    let year = 1403;
+    let month = 7;
+    let day = 1;
+    for (const p of parts) {
+      if (p.type === 'year') year = parseInt(p.value, 10);
+      if (p.type === 'month') month = parseInt(p.value, 10);
+      if (p.type === 'day') day = parseInt(p.value, 10);
+    }
+    const mm = String(month).padStart(2, '0');
+    const dd = String(day).padStart(2, '0');
+    const jalaliStr = `${year}/${mm}/${dd}`;
+    const persianJalaliStr = `${toPersianDigits(year)}/${toPersianDigits(mm)}/${toPersianDigits(dd)}`;
+    return {
+      year,
+      month,
+      day,
+      monthName: JALALI_MONTHS[month - 1] || `ماه ${month}`,
+      jalaliStr,
+      persianJalaliStr,
+      isoUtc: d.toISOString(),
+    };
+  } catch {
+    // Fallback to algorithmic conversion
+    const gy = d.getUTCFullYear();
+    const gm = d.getUTCMonth() + 1;
+    const gd = d.getUTCDate();
+    const [year, month, day] = gregorianToJalali(gy, gm, gd);
+    const mm = String(month).padStart(2, '0');
+    const dd = String(day).padStart(2, '0');
+    return {
+      year,
+      month,
+      day,
+      monthName: JALALI_MONTHS[month - 1] || `ماه ${month}`,
+      jalaliStr: `${year}/${mm}/${dd}`,
+      persianJalaliStr: `${toPersianDigits(year)}/${toPersianDigits(mm)}/${toPersianDigits(dd)}`,
+      isoUtc: d.toISOString(),
+    };
+  }
+}
+
+/**
+ * Format a date into Persian Jalali date string
+ */
+export function formatJalaliDate(dateInput: any, withPersianDigits = true): string {
+  const info = dateToJalali(dateInput);
+  return withPersianDigits ? info.persianJalaliStr : info.jalaliStr;
+}
+
+/**
+ * Get the current Jalali year dynamically (no hardcoded 1403)
+ */
+export function getCurrentJalaliYear(): number {
+  return dateToJalali(new Date()).year;
+}
+
+/**
+ * Get current Jalali date string YYYY/MM/DD
+ */
+export function getJalaliDateString(date: Date = new Date()): string {
+  return dateToJalali(date).jalaliStr;
+}
+
+export function formatScoreBadge(
+  score: number,
+  thresholds?: { high?: number; low?: number }
+): {
   color: string;
   bg: string;
   border: string;
@@ -78,24 +216,29 @@ export function formatScoreBadge(score: number): {
   badgeClass: string;
   label: string;
 } {
-  if (score >= 90) {
+  const highThreshold = thresholds?.high ?? 95;
+  const lowThreshold = thresholds?.low ?? 80;
+
+  if (score >= highThreshold) {
     return {
       color: '#16A34A',
       bg: 'rgba(22, 163, 74, 0.1)',
       border: 'rgba(22, 163, 74, 0.3)',
       textClass: 'text-emerald-700 dark:text-emerald-400',
-      badgeClass: 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300',
-      label: 'عالی',
+      badgeClass:
+        'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300',
+      label: 'عالی (High Quality)',
     };
   }
-  if (score >= 70) {
+  if (score >= lowThreshold) {
     return {
       color: '#D97706',
       bg: 'rgba(217, 119, 6, 0.1)',
       border: 'rgba(217, 119, 6, 0.3)',
       textClass: 'text-amber-700 dark:text-amber-400',
-      badgeClass: 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300',
-      label: 'متوسط',
+      badgeClass:
+        'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300',
+      label: 'استاندارد (Standard)',
     };
   }
   return {
@@ -103,37 +246,25 @@ export function formatScoreBadge(score: number): {
     bg: 'rgba(220, 38, 38, 0.1)',
     border: 'rgba(220, 38, 38, 0.3)',
     textClass: 'text-rose-700 dark:text-rose-400',
-    badgeClass: 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-300',
-    label: 'نیازمند آموزش',
+    badgeClass:
+      'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-300',
+    label: 'کیفیت پایین (Low Quality)',
   };
 }
 
 /**
- * Check if assessment date is within the configurable dispute window (default 3 days)
+ * Check if assessment date is within the configurable dispute window
  */
-export function isWithinDisputeWindow(dateOrIso: string, daysAllowed: number = 3): boolean {
+export function isWithinDisputeWindow(dateOrIso: any, daysAllowed: number = 3): boolean {
   try {
     if (!dateOrIso) return false;
-    const eng = toEnglishDigits(dateOrIso).trim();
-
-    // Check if it's a Jalali string e.g. "1403/07/24"
-    if (eng.includes('/')) {
-      const parts = eng.split('/').map(Number);
-      if (parts.length >= 3) {
-        // Approximate day difference based on current Jalali date (current month is 07 / Mehr 1403)
-        const [jy, jm, jd] = parts;
-        const [curJy, curJm, curJd] = [1403, 7, 24]; // Base reference matching project seed
-        const daysAgo = (curJy - jy) * 365 + (curJm - jm) * 30 + (curJd - jd);
-        // Allow if check was in the last N days (or future/today)
-        return daysAgo <= daysAllowed && daysAgo >= -1;
-      }
-    }
-
-    const created = new Date(dateOrIso).getTime();
-    if (isNaN(created)) return true; // Fail-safe permissive
+    const checkDate = parseJalaliOrGregorianDate(dateOrIso);
+    if (isNaN(checkDate.getTime())) return true;
     const now = Date.now();
-    const diffDays = (now - created) / (1000 * 60 * 60 * 24);
-    return diffDays <= daysAllowed;
+    const diffMs = now - checkDate.getTime();
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+    // Allow if within dispute window days (or future/today)
+    return diffDays <= daysAllowed && diffDays >= -1;
   } catch {
     return false;
   }

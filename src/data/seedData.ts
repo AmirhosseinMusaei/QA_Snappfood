@@ -3,6 +3,7 @@ import { Agent, Team, Fault, Assessment, AuditLog, PortalSettings, User, Problem
 export const DEFAULT_SETTINGS: PortalSettings = {
   dispute_window_days: 3,
   min_monthly_reviews_default: 40,
+  controller_monthly_target: 160,
   sales_mistake_deductions: {
     0: 30,
     1: 25,

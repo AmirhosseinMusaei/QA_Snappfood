@@ -1,0 +1,278 @@
+// Prisma Schema for SnappFood Commercial QA Portal (Microsoft SQL Server Production)
+// To activate this schema: copy to prisma/schema.prisma or run: npm run db:switch:sqlserver
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String      @id @default(cuid())
+  username   String      @unique
+  password   String      // bcrypt hash
+  name       String
+  role       String      // 'agent' | 'team_lead' | 'manager' | 'qa_controller' | 'qa_supervisor' | 'admin'
+  department String?     // 'support' | 'sales'
+  team       String?
+  avatar     String?
+  active     Boolean     @default(true)
+  created_at DateTime    @default(now())
+  updated_at DateTime    @updatedAt
+
+  agent_profile       Agent?      @relation("UserToAgent")
+  managed_teams       Team[]      @relation("TeamLead")
+  supervised_agents   Agent[]     @relation("AgentTeamLead")
+  controlled_agents   Agent[]     @relation("AgentController")
+}
+
+model Team {
+  id         String      @id @default(cuid())
+  name       String      @unique
+  department String      // 'support' | 'sales'
+  lead_name  String
+  lead_id    String?
+  created_at DateTime    @default(now())
+  updated_at DateTime    @updatedAt
+
+  lead        User?        @relation("TeamLead", fields: [lead_id], references: [id])
+  agents      Agent[]
+  assessments Assessment[]
+
+  @@index([lead_id])
+}
+
+model Agent {
+  id                  String       @id @default(cuid())
+  source_id           String       @unique // e.g. "3718"
+  name                String
+  department          String       // 'support' | 'sales'
+  user_id             String?      @unique
+  team_id             String
+  team_name           String
+  team_lead_id        String?
+  team_lead           String
+  controller_id       String?
+  controller          String
+  operator_panel      String?      // 'CRM Sales' | 'Ring' | 'VOIP' | 'Jira'
+  sample_name         String?      @default("Random Sampling") // 'Support group' | 'bi-party' | 'Dislike' | 'Random Sampling'
+  check_process       String?      @default("if needed")       // 'if needed' | 'mandatory'
+  min_monthly_reviews Int          @default(40)
+  avatar              String?
+  active              Boolean      @default(true)
+  created_at          DateTime     @default(now())
+  updated_at          DateTime     @updatedAt
+
+  user                User?        @relation("UserToAgent", fields: [user_id], references: [id])
+  team                Team         @relation(fields: [team_id], references: [id])
+  team_lead_user      User?        @relation("AgentTeamLead", fields: [team_lead_id], references: [id])
+  controller_user     User?        @relation("AgentController", fields: [controller_id], references: [id])
+  assessments         Assessment[]
+
+  @@index([source_id])
+  @@index([team_id])
+  @@index([user_id])
+  @@index([team_lead_id])
+  @@index([controller_id])
+}
+
+model AssessmentForm {
+  id          String         @id @default(cuid())
+  form_type   String         // 'support' | 'sales'
+  title       String
+  version     Int            @default(1)
+  is_active   Boolean        @default(true)
+  created_at  DateTime       @default(now())
+  updated_at  DateTime       @updatedAt
+
+  criteria    RubricCriteria[]
+  assessments Assessment[]
+
+  @@unique([form_type, version])
+}
+
+model RubricCriteria {
+  id          String               @id @default(cuid())
+  form_id     String
+  section     String               // e.g. 'soft_skill' | 'knowledge' | 'script' | 'mistake'
+  title       String
+  max_points  Int
+  order_index Int                  @default(0)
+
+  form        AssessmentForm       @relation(fields: [form_id], references: [id])
+  items       RubricCriteriaItem[]
+
+  @@index([form_id])
+}
+
+model RubricCriteriaItem {
+  id          String         @id @default(cuid())
+  criteria_id String
+  title       String
+  max_points  Int
+  order_index Int            @default(0)
+
+  criteria    RubricCriteria @relation(fields: [criteria_id], references: [id], onDelete: Cascade)
+
+  @@index([criteria_id])
+}
+
+model Fault {
+  id          String       @id @default(cuid())
+  title       String       @unique
+  department  String       // 'support' | 'sales' | 'both'
+  category    String
+  is_critical Boolean      @default(false)
+  description String?
+  created_at  DateTime     @default(now())
+  updated_at  DateTime     @updatedAt
+
+  assessments Assessment[]
+}
+
+model Assessment {
+  id                    String            @id @default(cuid())
+  agent_id              String
+  controller_id         String
+  team_id               String?
+  form_id               String?
+  form_type             String            // 'support' | 'sales'
+  form_version          Int?              @default(1)
+  sample_name           String            // 'Support group' | 'bi-party' | 'Dislike' | 'Random Sampling' | 'if needed'
+  vendor_id             String?
+  vendor_title          String?
+  check_date            String            // Jalali date '1403/07/24'
+  check_date_utc        DateTime          @default(now()) // Gregorian UTC date for month grouping
+  fault_id              String?
+  backend_general       Boolean           @default(false)
+  is_fraud              Boolean           @default(false)
+  result                String            // 'No problem' | 'Need to check' | 'Coaching Required' | 'بررسی شده'
+  result_comment        String?
+
+  // Team Lead Review Workflow
+  team_lead_reviewed    Boolean           @default(false)
+  team_lead_note        String?
+  team_lead_reviewed_at String?
+  action_taken          String?           // 'آموزش فردی' | 'فیدبک' | 'بررسی و اصلاح اسکریپت' | 'تحلیل تماس‌ها' | 'اصلاح فرآیند' | 'توضیح اثر خطا'
+
+  // Support Specific Fields
+  ticket_number         String?
+  voice_link            String?
+  fault_categories      String?           // JSON array string e.g. '["Vendor problem"]'
+  support_scores_json   String?           // JSON object e.g. '{"intro": 5, "courtesy": 5}'
+  description           String?
+
+  // Sales Specific Fields
+  phone_number          String?
+  project               String?           // 'All Project' | 'NCR' | 'Promotion' | 'Campaign' | 'Bi-Party'
+  discount_or_coupon    String?
+  registration_date     String?
+  execution_date        String?
+  mistake_count         Int?              @default(0)
+  sales_scores_json     String?           // JSON object e.g. '{"greeting": 5, ...}'
+
+  // Scores
+  total_score           Int
+  created_at            DateTime          @default(now())
+  updated_at            DateTime          @updatedAt
+  deleted_at            DateTime?         // Soft delete
+
+  agent                 Agent             @relation(fields: [agent_id], references: [id])
+  team                  Team?             @relation(fields: [team_id], references: [id])
+  form                  AssessmentForm?   @relation(fields: [form_id], references: [id])
+  fault                 Fault?            @relation(fields: [fault_id], references: [id])
+  scores                AssessmentScore[]
+  disputes              Dispute[]
+
+  @@index([agent_id])
+  @@index([check_date])
+  @@index([team_id])
+  @@index([result])
+  @@index([controller_id])
+  @@index([deleted_at])
+}
+
+model AssessmentScore {
+  id            String     @id @default(cuid())
+  assessment_id String
+  item_id       String     // Reference to RubricCriteriaItem id
+  criterion_id  String?
+  awarded_score Int
+  max_score     Int
+
+  assessment    Assessment @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+
+  @@index([assessment_id])
+  @@index([item_id])
+}
+
+model Dispute {
+  id                 String     @id @default(cuid())
+  assessment_id      String
+  agent_id           String
+  agent_name         String
+  criterion_id       String?
+  criterion_title    String?
+  agent_comment      String
+  status             String     @default("pending") // 'pending' | 'resolved' | 'rejected'
+  controller_id      String?
+  controller_comment String?
+  original_score     Int
+  revised_score      Int?
+  created_at         DateTime   @default(now())
+  resolved_at        DateTime?
+
+  assessment         Assessment @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+
+  @@index([assessment_id])
+  @@index([status])
+  @@index([agent_id])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  user_id    String
+  user_name  String
+  user_role  String
+  entity     String   // 'assessment' | 'dispute' | 'agent' | 'rubric' | 'fault' | 'settings' | 'problem'
+  entity_id  String
+  action     String   // 'create' | 'update' | 'delete' | 'dispute_filed' | 'dispute_resolved' | 'team_lead_reviewed' | 'rubric_updated' | 'settings_updated'
+  field      String?
+  old_value  String?
+  new_value  String?
+  created_at DateTime @default(now())
+
+  @@index([entity])
+  @@index([entity_id])
+  @@index([created_at])
+  @@index([user_id])
+}
+
+model Setting {
+  key         String   @id
+  value       String   // JSON string
+  description String?
+  updated_at  DateTime @updatedAt
+}
+
+model Problem {
+  id            String    @id @default(cuid())
+  priority      String    // 'High' | 'Medium' | 'Low' | 'Critical'
+  issue_date    String    // Jalali date e.g. "۱۴۰۳/۰۷/۱۰"
+  team          String
+  category      String
+  title         String
+  description   String
+  status        String    @default("Pending") // 'Pending' | 'Resolved'
+  owner         String
+  resolved_at   String?
+  solution_note String?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  @@index([team])
+  @@index([status])
+}

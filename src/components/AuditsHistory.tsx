@@ -12,6 +12,8 @@ import {
   Edit2,
   Trash2,
   RotateCcw,
+  FileSpreadsheet,
+  Upload,
   ShieldAlert,
   User,
   Users,
@@ -21,8 +23,16 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
 import { Assessment, DepartmentType, AssessmentResult, Fault } from '../types/index.ts';
-import { toPersianDigits, toEnglishDigits, formatScoreBadge } from '../utils/persian.ts';
+import {
+  toPersianDigits,
+  toEnglishDigits,
+  formatScoreBadge,
+  dateToJalali,
+  JALALI_MONTHS,
+} from '../utils/persian.ts';
+import { exportAssessmentsToExcel } from '../utils/exportExcel.ts';
 import { AuditDetailModal } from './AuditDetailModal.tsx';
+import { ImportAssessmentsModal } from './ImportAssessmentsModal.tsx';
 
 export const AuditsHistory: React.FC = () => {
   const {
@@ -54,6 +64,7 @@ export const AuditsHistory: React.FC = () => {
   // Modals
   const [selectedAudit, setSelectedAudit] = useState<Assessment | null>(null);
   const [editingAudit, setEditingAudit] = useState<Assessment | null>(null);
+  const [showImportModal, setShowImportModal] = useState<boolean>(false);
   const [editScoreInput, setEditScoreInput] = useState<number>(100);
   const [editCommentInput, setEditCommentInput] = useState<string>('');
   const [editResultInput, setEditResultInput] = useState<AssessmentResult>('No problem');
@@ -65,11 +76,14 @@ export const AuditsHistory: React.FC = () => {
   // Filtered audits
   const filteredAudits = useMemo(() => {
     return sourceList.filter((audit) => {
-      const engDate = toEnglishDigits(audit.check_date);
-
-      // 1. Month filter
+      // 1. Month filter (compares Jalali month number)
       if (filterMonth !== 'all') {
-        if (!engDate.includes(`/${filterMonth}/`) && !audit.check_date.includes(filterMonth)) {
+        const jMonth =
+          audit.check_date_month_num ??
+          (audit.check_date_year && audit.check_date_month_num
+            ? audit.check_date_month_num
+            : dateToJalali(audit.check_date).month);
+        if (jMonth !== Number(filterMonth)) {
           return false;
         }
       }
@@ -174,6 +188,15 @@ export const AuditsHistory: React.FC = () => {
     }
   };
 
+  // Excel (.xlsx) Export
+  const handleExportExcel = () => {
+    exportAssessmentsToExcel(
+      filteredAudits,
+      agents,
+      `snappfood_assessments_${Date.now()}.xlsx`
+    );
+  };
+
   // CSV Export with UTF-8 BOM (\uFEFF)
   const handleExportCsv = () => {
     const headers = [
@@ -197,13 +220,14 @@ export const AuditsHistory: React.FC = () => {
 
     const rows = filteredAudits.map((a) => {
       const ag = agents.find((item) => item.id === a.agent_id);
+      const jalaliDate = a.check_date_jalali_plain || a.check_date_jalali || dateToJalali(a.check_date).jalaliStr;
       return [
         a.id,
         ag?.name || '',
         ag?.source_id || '',
         ag?.team || '',
         a.form_type === 'support' ? 'پشتیبانی' : 'فروش',
-        a.check_date,
+        jalaliDate,
         a.vendor_id || '',
         `"${(a.vendor_title || '').replace(/"/g, '""')}"`,
         a.ticket_number || a.phone_number || '',
@@ -257,7 +281,7 @@ export const AuditsHistory: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {(role === 'qa_supervisor' || role === 'admin') && (
             <button
               type="button"
@@ -273,14 +297,36 @@ export const AuditsHistory: React.FC = () => {
             </button>
           )}
 
+          {(role === 'qa_supervisor' || role === 'qa_controller' || role === 'admin') && (
+            <button
+              type="button"
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/60 dark:hover:bg-sky-900 border border-sky-300 dark:border-sky-800 text-sky-700 dark:text-sky-300 text-xs font-semibold transition shadow-2xs"
+              title="بارگذاری گروهی و ایمپورت سوابق ارزیابی گذشته از طریق فایل CSV با پیش‌نمایش اعتبارسنجی"
+            >
+              <Upload className="w-4 h-4 text-sky-600" />
+              <span>ایمپورت سوابق (CSV Import)</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900 text-emerald-800 dark:text-emerald-200 text-xs font-semibold border border-emerald-300 dark:border-emerald-800 transition shadow-2xs"
+            title="خروجی فایل رسمی مایکروسافت اکسل (.xlsx) با تفکیک ستون‌ها و استایل استاندارد"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            <span>خروجی اکسل (.xlsx)</span>
+          </button>
+
           <button
             type="button"
             onClick={handleExportCsv}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-slate-600 transition shadow-2xs"
-            title="خروجی فایل اکسل با فرمت UTF-8 BOM جهت پشتیبانی کامل از زبان فارسی"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-slate-600 transition shadow-2xs"
+            title="خروجی فایل کاما-جدا با کدگذاری UTF-8 BOM جهت سازگاری با اکسل فارسی"
           >
-            <Download className="w-4 h-4 text-sky-600" />
-            <span>خروجی اکسل / CSV (Export CSV)</span>
+            <Download className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+            <span>خروجی CSV</span>
           </button>
         </div>
       </div>
@@ -308,9 +354,14 @@ export const AuditsHistory: React.FC = () => {
             className="p-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-800 dark:text-slate-100 font-medium"
           >
             <option value="all">همه ماه‌های جلالی</option>
-            <option value="07">مهر ماه (۰۷)</option>
-            <option value="06">شهریور ماه (۰۶)</option>
-            <option value="05">مرداد ماه (۰۵)</option>
+            {JALALI_MONTHS.map((name, idx) => {
+              const mNum = idx + 1;
+              return (
+                <option key={mNum} value={String(mNum)}>
+                  {name} ({toPersianDigits(mNum < 10 ? `۰${mNum}` : String(mNum))})
+                </option>
+              );
+            })}
           </select>
 
           {/* Department Filter */}
@@ -453,7 +504,7 @@ export const AuditsHistory: React.FC = () => {
 
                       {/* Date */}
                       <td className="py-3 px-3 font-mono text-slate-600 dark:text-slate-300 whitespace-nowrap">
-                        {toPersianDigits(audit.check_date)}
+                        {audit.check_date_jalali || toPersianDigits(dateToJalali(audit.check_date).persianJalaliStr)}
                       </td>
 
                       {/* Vendor / Ticket */}
@@ -678,6 +729,14 @@ export const AuditsHistory: React.FC = () => {
         <AuditDetailModal
           assessment={selectedAudit}
           onClose={() => setSelectedAudit(null)}
+        />
+      )}
+
+      {/* CSV Assessment Import Modal */}
+      {showImportModal && (
+        <ImportAssessmentsModal
+          isOpen={showImportModal}
+          onClose={() => setShowImportModal(false)}
         />
       )}
     </div>

@@ -6,14 +6,14 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite" // In production with Microsoft SQL Server, change to provider = "sqlserver"
+  provider = "sqlite" // In production with Microsoft SQL Server, change to provider = "sqlserver" or run `npm run db:switch:sqlserver`
   url      = env("DATABASE_URL")
 }
 
 model User {
   id         String      @id @default(cuid())
   username   String      @unique
-  password   String      // Hashed with bcrypt
+  password   String      // bcrypt hash
   name       String
   role       String      // 'agent' | 'team_lead' | 'manager' | 'qa_controller' | 'qa_supervisor' | 'admin'
   department String?     // 'support' | 'sales'
@@ -23,7 +23,10 @@ model User {
   created_at DateTime    @default(now())
   updated_at DateTime    @updatedAt
 
-  audit_logs AuditLog[]
+  agent_profile       Agent?      @relation("UserToAgent")
+  managed_teams       Team[]      @relation("TeamLead")
+  supervised_agents   Agent[]     @relation("AgentTeamLead")
+  controlled_agents   Agent[]     @relation("AgentController")
 }
 
 model Team {
@@ -31,11 +34,15 @@ model Team {
   name       String      @unique
   department String      // 'support' | 'sales'
   lead_name  String
+  lead_id    String?
   created_at DateTime    @default(now())
   updated_at DateTime    @updatedAt
 
+  lead        User?        @relation("TeamLead", fields: [lead_id], references: [id])
   agents      Agent[]
   assessments Assessment[]
+
+  @@index([lead_id])
 }
 
 model Agent {
@@ -43,22 +50,33 @@ model Agent {
   source_id           String       @unique // e.g. "3718"
   name                String
   department          String       // 'support' | 'sales'
+  user_id             String?      @unique
   team_id             String
   team_name           String
+  team_lead_id        String?
   team_lead           String
+  controller_id       String?
   controller          String
-  operator_panel      String?      // 'CRM Sales' | 'Ring' | 'Zendesk'
+  operator_panel      String?      // 'CRM Sales' | 'Ring' | 'VOIP' | 'Jira'
+  sample_name         String?      @default("Random Sampling") // 'Support group' | 'bi-party' | 'Dislike' | 'Random Sampling'
+  check_process       String?      @default("if needed")       // 'if needed' | 'mandatory'
   min_monthly_reviews Int          @default(40)
   avatar              String?
   active              Boolean      @default(true)
   created_at          DateTime     @default(now())
   updated_at          DateTime     @updatedAt
 
+  user                User?        @relation("UserToAgent", fields: [user_id], references: [id])
   team                Team         @relation(fields: [team_id], references: [id])
+  team_lead_user      User?        @relation("AgentTeamLead", fields: [team_lead_id], references: [id])
+  controller_user     User?        @relation("AgentController", fields: [controller_id], references: [id])
   assessments         Assessment[]
 
   @@index([source_id])
   @@index([team_id])
+  @@index([user_id])
+  @@index([team_lead_id])
+  @@index([controller_id])
 }
 
 model AssessmentForm {
@@ -79,7 +97,7 @@ model AssessmentForm {
 model RubricCriteria {
   id          String               @id @default(cuid())
   form_id     String
-  section     String               // e.g. 'soft_skill' | 'knowledge' | 'script'
+  section     String               // e.g. 'soft_skill' | 'knowledge' | 'script' | 'mistake'
   title       String
   max_points  Int
   order_index Int                  @default(0)
@@ -122,26 +140,28 @@ model Assessment {
   team_id               String?
   form_id               String?
   form_type             String            // 'support' | 'sales'
+  form_version          Int?              @default(1)
   sample_name           String            // 'Support group' | 'bi-party' | 'Dislike' | 'Random Sampling' | 'if needed'
   vendor_id             String?
   vendor_title          String?
-  check_date            String            // Jalali date '1403/07/24'
-  check_date_utc        DateTime          @default(now()) // Gregorian UTC date for month grouping
+  check_date            DateTime          @default(now()) // Gregorian UTC DateTime
   fault_id              String?
   backend_general       Boolean           @default(false)
   is_fraud              Boolean           @default(false)
-  result                String            // 'No problem' | 'Need to check' | 'Coaching Required'
+  result                String            // 'No problem' | 'Need to check' | 'Coaching Required' | 'بررسی شده'
   result_comment        String?
 
   // Team Lead Review Workflow
   team_lead_reviewed    Boolean           @default(false)
   team_lead_note        String?
   team_lead_reviewed_at String?
+  action_taken          String?           // 'آموزش فردی' | 'فیدبک' | 'بررسی و اصلاح اسکریپت' | 'تحلیل تماس‌ها' | 'اصلاح فرآیند' | 'توضیح اثر خطا'
 
   // Support Specific Fields
   ticket_number         String?
   voice_link            String?
   fault_categories      String?           // JSON array string e.g. '["Vendor problem"]'
+  support_scores_json   String?           // JSON object e.g. '{"intro": 5, "courtesy": 5}'
   description           String?
 
   // Sales Specific Fields
@@ -151,6 +171,7 @@ model Assessment {
   registration_date     String?
   execution_date        String?
   mistake_count         Int?              @default(0)
+  sales_scores_json     String?           // JSON object e.g. '{"greeting": 5, ...}'
 
   // Scores
   total_score           Int
@@ -195,7 +216,7 @@ model Dispute {
   criterion_id       String?
   criterion_title    String?
   agent_comment      String
-  status             String     @default("pending") // 'pending' | 'resolved' | 'rejected'
+  status             String     @default("pending") // 'pending' | 'in_review' | 'resolved' | 'rejected'
   controller_id      String?
   controller_comment String?
   original_score     Int
@@ -215,19 +236,18 @@ model AuditLog {
   user_id    String
   user_name  String
   user_role  String
-  entity     String   // 'assessment' | 'dispute' | 'agent' | 'rubric' | 'fault' | 'settings'
+  entity     String   // 'assessment' | 'dispute' | 'agent' | 'rubric' | 'fault' | 'settings' | 'problem'
   entity_id  String
-  action     String   // 'create' | 'update' | 'delete' | 'dispute_filed' | 'dispute_resolved' | 'team_lead_reviewed'
+  action     String   // 'create' | 'update' | 'delete' | 'dispute_filed' | 'dispute_resolved' | 'team_lead_reviewed' | 'rubric_updated' | 'settings_updated'
   field      String?
   old_value  String?
   new_value  String?
   created_at DateTime @default(now())
 
-  user       User?    @relation(fields: [user_id], references: [id])
-
   @@index([entity])
   @@index([entity_id])
   @@index([created_at])
+  @@index([user_id])
 }
 
 model Setting {
@@ -235,4 +255,23 @@ model Setting {
   value       String   // JSON string
   description String?
   updated_at  DateTime @updatedAt
+}
+
+model Problem {
+  id            String    @id @default(cuid())
+  priority      String    // 'High' | 'Medium' | 'Low' | 'Critical'
+  issue_date    String    // Jalali date e.g. "۱۴۰۳/۰۷/۱۰"
+  team          String
+  category      String
+  title         String
+  description   String
+  status        String    @default("Pending") // 'Pending' | 'Resolved'
+  owner         String
+  resolved_at   String?
+  solution_note String?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  @@index([team])
+  @@index([status])
 }
