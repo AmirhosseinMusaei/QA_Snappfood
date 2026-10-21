@@ -39,6 +39,7 @@ const Sparkline: React.FC<{ scores: number[] }> = ({ scores }) => {
   if (!scores || scores.length === 0)
     return <span className="text-slate-300">-</span>;
 
+  if (!scores.length) return <span className="text-slate-400">—</span>;
   const min = Math.min(...scores, 70);
   const max = Math.max(...scores, 100);
   const range = max - min || 1;
@@ -137,8 +138,13 @@ export const TeamLeadDashboard: React.FC = () => {
 
   // Team agents supervised by this lead
   const teamAgents = useMemo(
-    () => agents.filter((a) => a.team_lead_id === currentLead?.id),
-    [agents, currentLead?.id],
+    () =>
+      agents.filter((a) =>
+        role === "manager"
+          ? a.department === currentUser.department
+          : a.team_lead_id === currentLead?.id,
+      ),
+    [agents, currentLead?.id, role, currentUser.department],
   );
 
   const teamAgentIds = useMemo(() => teamAgents.map((a) => a.id), [teamAgents]);

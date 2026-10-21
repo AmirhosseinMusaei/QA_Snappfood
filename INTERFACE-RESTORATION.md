@@ -17,6 +17,7 @@ Admin and QA Supervisor use a compact hamburger menu on desktop as well as mobil
 - History, disputes and audit logs retain server pagination/filtering, exact role checks and full filtered exports. Month filtering specifies a year; stale edits retain revision protection.
 - Disputes resolve by dispute ID and criterion item scores. Admin cannot mutate assessments through the restored interface.
 - Restored lead review waits for successful persistence and requires a real note, rather than pre-filling a claim that feedback already happened.
+- Agent history is independently paginated across all dates; the three-month KPI window does not hide older assessments. Detail views retain the selected dispute identity and prefer the newest assessment revision.
 - Header counters come from scoped database counts, not the latest 20 assessments.
 - Monthly chart points use agent final monthly scores; three-month means exclude absent months and include actual zero scores. Weekly charts describe assessment samples.
 - Date-range reports use inclusive Tehran calendar dates and apply filters consistently to API lists/exports.
@@ -28,7 +29,7 @@ Admin and QA Supervisor use a compact hamburger menu on desktop as well as mobil
 
 ## Verification
 
-Local regression suite: 116 tests passed, zero failures/skips before the final small optimization pass. TypeScript and production build passed; dependency audit reported zero known vulnerabilities. Browser suite expanded to 14 desktop/mobile cases, including original layout markers, session reload, admin/supervisor navigation, menu width/Escape and report export. Browser screenshots and traces are uploaded by CI. Final CI results supersede this local checkpoint.
+Local regression suite: 116 tests passed, zero failures/skips before the final small optimization pass. The first remote CI run also passed both jobs, including all 14 browser cases and live SQL Server smoke checks. TypeScript and production build passed; dependency audit reported zero known vulnerabilities. Browser suite expanded to 14 desktop/mobile cases, including original layout markers, session reload, admin/supervisor navigation, menu width/Escape and report export. Browser screenshots and traces are uploaded by CI. Final CI results supersede this local checkpoint.
 
 Local browser installation failed again due environment downloads; no local browser success is claimed. Live SQL Server and browser verification are performed in GitHub Actions. Remaining organization-specific SSO, notifications/calibration and production rollout checks documented in README still apply.
 

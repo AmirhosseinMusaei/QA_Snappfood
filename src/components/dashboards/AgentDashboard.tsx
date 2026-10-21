@@ -1,8 +1,9 @@
+import { useServerPage } from "../../context/useServerPage.ts";
 import {
   useDashboardData,
   meanPresent,
 } from "../../context/useDashboardData.ts";
-import { DataState } from "../shared/DataState.tsx";
+import { DataState, PageControls } from "../shared/DataState.tsx";
 import React, { useState, useMemo } from "react";
 import {
   TrendingUp,
@@ -37,6 +38,7 @@ import { AuditDetailModal } from "../AuditDetailModal.tsx";
 export const AgentDashboard: React.FC = () => {
   const {
     currentAgentId,
+    assessments: changes,
     agents,
     submitDispute,
     supportRubric,
@@ -149,20 +151,21 @@ export const AgentDashboard: React.FC = () => {
     return result;
   }, [agentAudits, targetYear, targetMonth, currentMonthAvg]);
 
-  // Filtered table list
-  const filteredAudits = useMemo(() => {
-    if (!searchQuery) return agentAudits;
-    const q = searchQuery.toLowerCase();
-    return agentAudits.filter(
-      (a) =>
-        a.id.toLowerCase().includes(q) ||
-        (a.vendor_title && a.vendor_title.includes(q)) ||
-        (a.ticket_number && a.ticket_number.includes(q)) ||
-        a.check_date.toLowerCase().includes(q) ||
-        (a.check_date_jalali && a.check_date_jalali.includes(q)) ||
-        (a.check_date_jalali_plain && a.check_date_jalali_plain.includes(q)),
-    );
-  }, [agentAudits, searchQuery]);
+  // Keep the full historical list independent from the three-month KPI window.
+  const [historyPage, setHistoryPage] = useState(1);
+  const historyQuery = new URLSearchParams({
+    agent_id: agent?.id || currentAgentId || "",
+    search: searchQuery,
+  }).toString();
+  React.useEffect(() => setHistoryPage(1), [historyQuery]);
+  const historyResource = useServerPage<Assessment>(
+    "/api/assessments",
+    historyQuery,
+    historyPage,
+    25,
+    changes,
+  );
+  const filteredAudits = historyResource.rows;
 
   const scoreBadge =
     currentMonthAvg !== null
@@ -415,6 +418,16 @@ export const AgentDashboard: React.FC = () => {
           </div>
         </div>
 
+        <DataState
+          loading={historyResource.loading}
+          error={historyResource.error}
+        />
+        <PageControls
+          page={historyPage}
+          total={historyResource.total}
+          limit={25}
+          onChange={setHistoryPage}
+        />
         {/* Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-right text-xs">

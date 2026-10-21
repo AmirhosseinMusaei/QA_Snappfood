@@ -368,10 +368,16 @@ export const ManagerDashboard: React.FC = () => {
     downloadCsv(headers, rows, `SnappFood_QA_Productivity_${timePeriod}.csv`);
   };
 
-  const scoreBadge = formatScoreBadge(overallAvg ?? 0, {
-    high: settings.high_quality_threshold,
-    low: settings.low_quality_threshold,
-  });
+  const scoreBadge =
+    overallAvg === null
+      ? {
+          badgeClass: "bg-slate-100 dark:bg-slate-800 text-slate-500",
+          label: "فاقد ارزیابی",
+        }
+      : formatScoreBadge(overallAvg, {
+          high: settings.high_quality_threshold,
+          low: settings.low_quality_threshold,
+        });
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -924,7 +930,14 @@ export const ManagerDashboard: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
               {teamStats.map((item) => {
-                const badge = formatScoreBadge(item.avgScore ?? 0);
+                const badge =
+                  item.avgScore === null
+                    ? {
+                        badgeClass:
+                          "bg-slate-100 dark:bg-slate-800 text-slate-500",
+                        label: "فاقد ارزیابی",
+                      }
+                    : formatScoreBadge(item.avgScore);
                 return (
                   <tr
                     key={item.team.id}
