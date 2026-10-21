@@ -4,7 +4,7 @@
  * realistic historical assessments with audit logs, faults, settings, and problems.
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from "@prisma/client";
 import {
   SEED_TEAMS,
   SEED_CONTROLLERS,
@@ -16,28 +16,43 @@ import {
   DEFAULT_SETTINGS,
   SEED_USERS,
   SEED_PROBLEMS,
-} from '../src/data/seedData.ts';
-import { SUPPORT_RUBRIC, SALES_RUBRIC } from '../src/utils/scoring.ts';
-import { parseJalaliOrGregorianDate } from '../src/utils/persian.ts';
+} from "../src/data/seedData.ts";
+import { SUPPORT_RUBRIC, SALES_RUBRIC } from "../src/utils/scoring.ts";
+import { parseJalaliOrGregorianDate } from "../src/utils/persian.ts";
 
-import bcrypt from 'bcryptjs';
+import bcrypt from "bcryptjs";
 const prisma = new PrismaClient();
 
-const DEFAULT_PASSWORD = 'snappfood123';
+const DEFAULT_PASSWORD = "snappfood123";
 const HASHED_PASSWORD = bcrypt.hashSync(DEFAULT_PASSWORD, 10);
 
 async function main() {
-  console.log('🌱 Starting SnappFood QA database seed...');
+  if (
+    process.env.NODE_ENV === "production" ||
+    (process.env.NODE_ENV !== "test" && process.env.DEMO_SEED !== "true")
+  )
+    throw new Error(
+      "Demo seed requires NODE_ENV=test or DEMO_SEED=true outside production.",
+    );
+  if ((await prisma.user.count()) && process.env.NODE_ENV !== "test")
+    throw new Error(
+      "Demo seed requires an empty database; existing users will not be overwritten.",
+    );
+  console.log("🌱 Starting SnappFood QA database seed...");
 
   // 1. Seed Settings
   for (const [key, val] of Object.entries(DEFAULT_SETTINGS)) {
     await prisma.setting.upsert({
       where: { key },
       update: { value: JSON.stringify(val) },
-      create: { key, value: JSON.stringify(val), description: `Snappfood QA setting: ${key}` },
+      create: {
+        key,
+        value: JSON.stringify(val),
+        description: `Snappfood QA setting: ${key}`,
+      },
     });
   }
-  console.log('✅ Settings seeded');
+  console.log("✅ Settings seeded");
 
   // 2. Seed Users (Roles: admin, qa_supervisor, qa_controller, team_lead, manager, agent)
   for (const u of SEED_USERS) {
@@ -65,15 +80,15 @@ async function main() {
 
   // Also seed dedicated agent user accounts so each agent can log in and view only their own evaluations
   const agentUsersMap: Record<string, string> = {
-    'agent-3718': 'mahya',
-    'agent-3726': 'alireza',
-    'agent-7237': 'sara',
-    'agent-7110': 'amirali',
-    'agent-3728': 'shaghayegh',
-    'agent-3708': 'zahra',
-    'agent-7119': 'niloofar',
-    'agent-3736': 'parmida',
-    'agent-3890': 'farzad',
+    "agent-3718": "mahya",
+    "agent-3726": "alireza",
+    "agent-7237": "sara",
+    "agent-7110": "amirali",
+    "agent-3728": "shaghayegh",
+    "agent-3708": "zahra",
+    "agent-7119": "niloofar",
+    "agent-3736": "parmida",
+    "agent-3890": "farzad",
   };
 
   for (const ag of SEED_AGENTS) {
@@ -84,7 +99,7 @@ async function main() {
       where: { username: uname },
       update: {
         name: ag.name,
-        role: 'agent',
+        role: "agent",
         department: ag.department,
         team: ag.team,
         password: HASHED_PASSWORD,
@@ -94,7 +109,7 @@ async function main() {
         username: uname,
         password: HASHED_PASSWORD,
         name: ag.name,
-        role: 'agent',
+        role: "agent",
         department: ag.department,
         team: ag.team,
         active: true,
@@ -104,28 +119,28 @@ async function main() {
 
   // Default generic agent
   await prisma.user.upsert({
-    where: { username: 'agent' },
+    where: { username: "agent" },
     update: {
       password: HASHED_PASSWORD,
     },
     create: {
-      id: 'usr-agent-default',
-      username: 'agent',
+      id: "usr-agent-default",
+      username: "agent",
       password: HASHED_PASSWORD,
-      name: 'مهیا ممیزاده (کارشناس نمونه)',
-      role: 'agent',
-      department: 'sales',
-      team: 'Campaign',
+      name: "مهیا ممیزاده (کارشناس نمونه)",
+      role: "agent",
+      department: "sales",
+      team: "Campaign",
       active: true,
     },
   });
 
-  console.log('✅ Users with bcrypt passwords seeded');
+  console.log("✅ Users with bcrypt passwords seeded");
 
   // 3. Seed Teams (with lead_id User relation)
   for (const t of SEED_TEAMS) {
     const leadUser = await prisma.user.findFirst({
-      where: { name: t.lead_name, role: 'team_lead' },
+      where: { name: t.lead_name, role: "team_lead" },
     });
 
     await prisma.team.upsert({
@@ -144,17 +159,19 @@ async function main() {
       },
     });
   }
-  console.log('✅ Teams with lead relations seeded');
+  console.log("✅ Teams with lead relations seeded");
 
   // 4. Seed Agents (with user_id, team_lead_id, and controller_id relations)
   for (const ag of SEED_AGENTS) {
-    const teamRecord = await prisma.team.findUnique({ where: { name: ag.team } });
+    const teamRecord = await prisma.team.findUnique({
+      where: { name: ag.team },
+    });
     const leadUser = await prisma.user.findFirst({
-      where: { name: ag.team_lead, role: 'team_lead' },
+      where: { name: ag.team_lead, role: "team_lead" },
     });
     const controllerUser = await prisma.user.findFirst({
       where: {
-        role: 'qa_controller',
+        role: "qa_controller",
         OR: [
           { username: ag.controller.toLowerCase() },
           { name: { contains: ag.controller } },
@@ -162,7 +179,9 @@ async function main() {
       },
     });
     const uname = agentUsersMap[ag.id] || `agent_${ag.source_id}`;
-    const agentUser = await prisma.user.findUnique({ where: { username: uname } });
+    const agentUser = await prisma.user.findUnique({
+      where: { username: uname },
+    });
 
     await prisma.agent.upsert({
       where: { source_id: ag.source_id },
@@ -170,15 +189,15 @@ async function main() {
         name: ag.name,
         department: ag.department,
         user_id: agentUser?.id || null,
-        team_id: teamRecord?.id || 'team-technical',
+        team_id: teamRecord?.id || "team-technical",
         team_name: ag.team,
         team_lead_id: leadUser?.id || null,
         team_lead: ag.team_lead,
         controller_id: controllerUser?.id || null,
         controller: ag.controller,
         operator_panel: ag.operator_panel,
-        sample_name: ag.sample_name || 'Random Sampling',
-        check_process: ag.check_process || 'if needed',
+        sample_name: ag.sample_name || "Random Sampling",
+        check_process: ag.check_process || "if needed",
         min_monthly_reviews: ag.min_monthly_reviews,
       },
       create: {
@@ -187,31 +206,31 @@ async function main() {
         name: ag.name,
         department: ag.department,
         user_id: agentUser?.id || null,
-        team_id: teamRecord?.id || 'team-technical',
+        team_id: teamRecord?.id || "team-technical",
         team_name: ag.team,
         team_lead_id: leadUser?.id || null,
         team_lead: ag.team_lead,
         controller_id: controllerUser?.id || null,
         controller: ag.controller,
         operator_panel: ag.operator_panel,
-        sample_name: ag.sample_name || 'Random Sampling',
-        check_process: ag.check_process || 'if needed',
+        sample_name: ag.sample_name || "Random Sampling",
+        check_process: ag.check_process || "if needed",
         min_monthly_reviews: ag.min_monthly_reviews,
         active: true,
       },
     });
   }
-  console.log('✅ Agents with User relations seeded');
+  console.log("✅ Agents with User relations seeded");
 
   // 5. Seed Assessment Forms, Criteria, and Sub-items
   // Support Form (Version 1)
   const supportForm = await prisma.assessmentForm.upsert({
-    where: { form_type_version: { form_type: 'support', version: 1 } },
-    update: { title: 'روبریک ارزیابی پشتیبانی (Support Rubric)' },
+    where: { form_type_version: { form_type: "support", version: 1 } },
+    update: { title: "روبریک ارزیابی پشتیبانی (Support Rubric)" },
     create: {
-      id: 'form-support-v1',
-      form_type: 'support',
-      title: 'روبریک ارزیابی پشتیبانی (Support Rubric)',
+      id: "form-support-v1",
+      form_type: "support",
+      title: "روبریک ارزیابی پشتیبانی (Support Rubric)",
       version: 1,
       is_active: true,
     },
@@ -250,12 +269,12 @@ async function main() {
 
   // Sales Form (Version 1)
   const salesForm = await prisma.assessmentForm.upsert({
-    where: { form_type_version: { form_type: 'sales', version: 1 } },
-    update: { title: 'روبریک ارزیابی فروش (Sales Rubric)' },
+    where: { form_type_version: { form_type: "sales", version: 1 } },
+    update: { title: "روبریک ارزیابی فروش (Sales Rubric)" },
     create: {
-      id: 'form-sales-v1',
-      form_type: 'sales',
-      title: 'روبریک ارزیابی فروش (Sales Rubric)',
+      id: "form-sales-v1",
+      form_type: "sales",
+      title: "روبریک ارزیابی فروش (Sales Rubric)",
       version: 1,
       is_active: true,
     },
@@ -291,7 +310,7 @@ async function main() {
       }
     }
   }
-  console.log('✅ Assessment Forms and Criteria seeded');
+  console.log("✅ Assessment Forms and Criteria seeded");
 
   // 6. Seed Faults
   for (const f of SEED_FAULTS) {
@@ -313,11 +332,13 @@ async function main() {
       },
     });
   }
-  console.log('✅ Faults seeded');
+  console.log("✅ Faults seeded");
 
   // 7. Seed Assessments
   for (const a of SEED_ASSESSMENTS) {
-    const existing = await prisma.assessment.findUnique({ where: { id: a.id } });
+    const existing = await prisma.assessment.findUnique({
+      where: { id: a.id },
+    });
     if (!existing) {
       await prisma.assessment.create({
         data: {
@@ -342,9 +363,15 @@ async function main() {
           action_taken: a.action_taken,
           ticket_number: a.ticket_number,
           voice_link: a.voice_link,
-          fault_categories: a.fault_categories ? JSON.stringify(a.fault_categories) : null,
-          support_scores_json: a.support_scores ? JSON.stringify(a.support_scores) : null,
-          sales_scores_json: a.sales_scores ? JSON.stringify(a.sales_scores) : null,
+          fault_categories: a.fault_categories
+            ? JSON.stringify(a.fault_categories)
+            : null,
+          support_scores_json: a.support_scores
+            ? JSON.stringify(a.support_scores)
+            : null,
+          sales_scores_json: a.sales_scores
+            ? JSON.stringify(a.sales_scores)
+            : null,
           phone_number: a.phone_number,
           project: a.project,
           discount_or_coupon: a.discount_or_coupon,
@@ -393,7 +420,9 @@ async function main() {
 
   // 8. Seed Problems
   for (const prob of SEED_PROBLEMS) {
-    const existing = await prisma.problem.findUnique({ where: { id: prob.id } });
+    const existing = await prisma.problem.findUnique({
+      where: { id: prob.id },
+    });
     if (!existing) {
       await prisma.problem.create({
         data: {
@@ -413,11 +442,13 @@ async function main() {
       });
     }
   }
-  console.log('✅ Problems seeded');
+  console.log("✅ Problems seeded");
 
   // 9. Seed Audit Logs
   for (const log of SEED_AUDIT_LOGS) {
-    const existing = await prisma.auditLog.findUnique({ where: { id: log.id } });
+    const existing = await prisma.auditLog.findUnique({
+      where: { id: log.id },
+    });
     if (!existing) {
       await prisma.auditLog.create({
         data: {
@@ -435,7 +466,7 @@ async function main() {
       });
     }
   }
-  console.log('✅ Audit Logs seeded');
+  console.log("✅ Audit Logs seeded");
 
   // 10. Seed Settings
   for (const [key, val] of Object.entries(DEFAULT_SETTINGS)) {
@@ -445,14 +476,14 @@ async function main() {
       create: { key, value: JSON.stringify(val) },
     });
   }
-  console.log('✅ Settings seeded');
+  console.log("✅ Settings seeded");
 
-  console.log('🎉 Seed completed successfully!');
+  console.log("🎉 Seed completed successfully!");
 }
 
 main()
   .catch((e) => {
-    console.error('Seed error:', e);
+    console.error("Seed error:", e);
     process.exit(1);
   })
   .finally(async () => {

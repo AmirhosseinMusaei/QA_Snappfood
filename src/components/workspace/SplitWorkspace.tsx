@@ -1,8 +1,8 @@
-import React from 'react';
-import { WorkspaceScoreSummary } from './WorkspaceScoreSummary.tsx';
-import { WorkspaceMetadataPanel } from './WorkspaceMetadataPanel.tsx';
-import { WorkspaceRubricPanel } from './WorkspaceRubricPanel.tsx';
-import { useWorkspaceState } from './useWorkspaceState.ts';
+import React from "react";
+import { WorkspaceScoreSummary } from "./WorkspaceScoreSummary.tsx";
+import { WorkspaceMetadataPanel } from "./WorkspaceMetadataPanel.tsx";
+import { WorkspaceRubricPanel } from "./WorkspaceRubricPanel.tsx";
+import { useWorkspaceState } from "./useWorkspaceState.ts";
 
 export const SplitWorkspace: React.FC<{
   onAssessmentSubmitted?: (newId: string) => void;
@@ -13,6 +13,7 @@ export const SplitWorkspace: React.FC<{
     <div className="pb-16">
       {/* 1. TOP STICKY LIVE SCORE HUD BAR */}
       <WorkspaceScoreSummary
+        isSubmitting={ws.isSubmitting}
         formType={ws.formType}
         supportCalculation={ws.supportCalculation}
         salesCalculation={ws.salesCalculation}

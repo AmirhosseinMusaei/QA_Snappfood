@@ -3,42 +3,31 @@
  */
 
 export type UserRole =
-  | 'agent'
-  | 'team_lead'
-  | 'manager'
-  | 'qa_controller'
-  | 'qa_supervisor'
-  | 'admin';
+  | "agent"
+  | "team_lead"
+  | "manager"
+  | "qa_controller"
+  | "qa_supervisor"
+  | "admin";
 
-export type DepartmentType = 'support' | 'sales';
+export type DepartmentType = "support" | "sales";
 
 export type SampleType =
-  | 'Support group'
-  | 'bi-party'
-  | 'Dislike'
-  | 'Random Sampling'
-  | 'if needed';
+  "Support group" | "bi-party" | "Dislike" | "Random Sampling" | "if needed";
 
 export type AssessmentResult =
-  | 'No problem'
-  | 'Need to check'
-  | 'Coaching Required'
-  | 'بررسی شده';
+  "No problem" | "Need to check" | "Coaching Required" | "بررسی شده";
 
 export type SupportFaultCategory =
-  | 'Snappfood problem'
-  | 'Vendor problem'
-  | 'Policy problem'
-  | 'Process problem'
-  | 'Support problem'
-  | 'Other teams';
+  | "Snappfood problem"
+  | "Vendor problem"
+  | "Policy problem"
+  | "Process problem"
+  | "Support problem"
+  | "Other teams";
 
 export type SalesProject =
-  | 'All Project'
-  | 'NCR'
-  | 'Promotion'
-  | 'Campaign'
-  | 'Bi-Party';
+  "All Project" | "NCR" | "Promotion" | "Campaign" | "Bi-Party";
 
 export interface User {
   id: string;
@@ -59,16 +48,16 @@ export interface Agent {
   source_id: string; // e.g. "3718"
   name: string;
   department: DepartmentType;
-  user_id?: string;
+  user_id?: string | null;
   team_id?: string;
   team: string; // e.g. "Campaign", "Technical"
   team_lead_id?: string;
   team_lead: string; // e.g. "نگین رضایی"
   controller_id?: string;
   controller: string; // e.g. "meysam"
-  operator_panel?: 'Ring' | 'VOIP' | 'Jira' | string;
+  operator_panel?: "Ring" | "VOIP" | "Jira" | string;
   sample_name?: string; // e.g. "Support group", "Random Sampling"
-  check_process?: 'if needed' | 'mandatory' | string;
+  check_process?: "if needed" | "mandatory" | string;
   min_monthly_reviews: number; // default 40
   avatar?: string;
   active: boolean;
@@ -85,13 +74,13 @@ export interface Team {
 export interface Fault {
   id: string;
   title: string;
-  department: DepartmentType | 'both';
+  department: DepartmentType | "both";
   category: string;
   is_critical: boolean; // if true, zeroes the assessment score!
   description?: string;
 }
 
-export type DisputeStatus = 'pending' | 'in_review' | 'resolved' | 'rejected';
+export type DisputeStatus = "open" | "in_review" | "accepted" | "rejected";
 
 export interface Dispute {
   id: string;
@@ -110,6 +99,9 @@ export interface Dispute {
 }
 
 export interface Assessment {
+  revision?: number;
+  legacy_aggregate?: boolean;
+  rubric?: RubricSection[] | null;
   id: string;
   agent_id: string;
   controller_id: string;
@@ -123,7 +115,7 @@ export interface Assessment {
   check_date_month?: string; // Derived Jalali month name e.g. "مهر"
   check_date_month_num?: number; // Derived Jalali month number e.g. 7
   check_date_year?: number; // Derived Jalali year e.g. 1403
-  fault_id?: string;
+  fault_id?: string | null;
   backend_general: boolean; // Error from backend (no penalty)
   is_fraud: boolean; // Fraudulent act (drops score to 0)
   result: AssessmentResult;
@@ -155,7 +147,14 @@ export interface Assessment {
   form_version?: number;
 
   // Improvement Action Taken
-  action_taken?: 'آموزش فردی' | 'فیدبک' | 'بررسی و اصلاح اسکریپت' | 'تحلیل تماس‌ها' | 'اصلاح فرآیند' | 'توضیح اثر خطا' | string;
+  action_taken?:
+    | "آموزش فردی"
+    | "فیدبک"
+    | "بررسی و اصلاح اسکریپت"
+    | "تحلیل تماس‌ها"
+    | "اصلاح فرآیند"
+    | "توضیح اثر خطا"
+    | string;
 
   // Calculated Scores
   total_score: number;
@@ -201,19 +200,19 @@ export interface AuditLog {
   user_id: string;
   user_name: string;
   user_role: UserRole;
-  entity: 'assessment' | 'dispute' | 'agent' | 'rubric' | 'fault' | 'settings';
+  entity: "assessment" | "dispute" | "agent" | "rubric" | "fault" | "settings";
   entity_id: string;
   action:
-    | 'create'
-    | 'update'
-    | 'delete'
-    | 'dispute_filed'
-    | 'dispute_in_review'
-    | 'dispute_resolved'
-    | 'dispute_rejected'
-    | 'team_lead_reviewed'
-    | 'rubric_updated'
-    | 'settings_updated';
+    | "create"
+    | "update"
+    | "delete"
+    | "dispute_filed"
+    | "dispute_in_review"
+    | "dispute_resolved"
+    | "dispute_rejected"
+    | "team_lead_reviewed"
+    | "rubric_updated"
+    | "settings_updated";
   field?: string;
   old_value?: string;
   new_value?: string;
@@ -221,6 +220,7 @@ export interface AuditLog {
 }
 
 export interface PortalSettings {
+  result_options?: string[];
   dispute_window_days: number;
   min_monthly_reviews_default: number;
   controller_monthly_target: number; // default 160
@@ -234,13 +234,13 @@ export interface PortalSettings {
 
 export interface ProblemItem {
   id: string;
-  priority: 'High' | 'Medium' | 'Low' | 'Critical';
+  priority: "High" | "Medium" | "Low" | "Critical";
   issue_date: string; // Jalali date e.g. "۱۴۰۳/۰۷/۱۰"
   team: string;
   category: string;
   title: string;
   description: string;
-  status: 'Pending' | 'Resolved';
+  status: "Pending" | "Resolved";
   owner: string;
   resolved_at?: string;
   solution_note?: string;

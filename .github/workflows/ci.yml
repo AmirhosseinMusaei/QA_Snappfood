@@ -1,0 +1,41 @@
+name: QA Portal checks
+on: [push, pull_request]
+jobs:
+  sqlite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "24", cache: npm }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=moderate
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+  sqlserver:
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: LocalCiOnly-ChangeMe-2026!
+        ports: ["1433:1433"]
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'LocalCiOnly-ChangeMe-2026!' -C -Q 'SELECT 1'"
+          --health-interval=10s --health-timeout=5s --health-retries=15
+    env:
+      DATABASE_URL: "sqlserver://localhost:1433;database=qa_ci;user=sa;password=LocalCiOnly-ChangeMe-2026!;encrypt=true;trustServerCertificate=true"
+      ALLOW_SQLSERVER_SMOKE: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "24", cache: npm }
+      - run: npm ci
+      - run: npm run db:switch:sqlserver
+      - run: npx prisma validate
+      - run: npx prisma generate
+      - run: npx prisma db push --skip-generate
+      - run: node --import tsx scripts/sqlserver-smoke.ts

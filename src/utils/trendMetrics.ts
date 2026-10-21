@@ -1,8 +1,14 @@
 /**
  * Utility for aggregating historical assessment data into weekly and monthly team performance metrics.
  */
-import type { Assessment, Agent, DepartmentType } from '../types/index.ts';
-import { toEnglishDigits, toPersianDigits, JALALI_MONTHS, dateToJalali } from './persian.ts';
+import type { Assessment, Agent, DepartmentType } from "../types/index.ts";
+import {
+  toEnglishDigits,
+  toPersianDigits,
+  JALALI_MONTHS,
+  dateToJalali,
+  parseJalaliOrGregorianDate,
+} from "./persian.ts";
 
 export interface TrendDataPoint {
   key: string;
@@ -34,10 +40,10 @@ export interface TrendSummary {
 }
 
 export interface FilterOptions {
-  team?: string | 'all';
-  department?: DepartmentType | 'all';
-  agentId?: string | 'all';
-  leadName?: string | 'all';
+  team?: string | "all";
+  department?: DepartmentType | "all";
+  agentId?: string | "all";
+  leadName?: string | "all";
 }
 
 /**
@@ -45,50 +51,13 @@ export interface FilterOptions {
  * Accurately projects ISO UTC timestamps into Tehran business Jalali date (e.g. 2026-10-19 -> 1405/07/27).
  * Rejects invalid dates by returning null.
  */
-export function parseJalaliDate(dateStr: string): { year: number; month: number; day: number } | null {
-  if (!dateStr) return null;
-
-  const clean = toEnglishDigits(String(dateStr)).trim();
-  if (!clean) return null;
-
-  // Check if it's an ISO date string or contains T/Z
-  if (clean.includes('T') || clean.includes('Z')) {
-    const dateObj = new Date(clean);
-    if (isNaN(dateObj.getTime())) return null;
-    const info = dateToJalali(dateObj);
-    return { year: info.year, month: info.month, day: info.day };
-  }
-
-  // Check if it's standard YYYY/MM/DD or YYYY-MM-DD
-  const parts = clean.split(/[/-]/);
-  if (parts.length >= 3) {
-    const y = parseInt(parts[0], 10);
-    const m = parseInt(parts[1], 10);
-    const d = parseInt(parts[2], 10);
-    if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
-      if (y < 1900) {
-        // Jalali date: validate month and day bounds
-        if (m < 1 || m > 12 || d < 1 || d > 31) return null;
-        if (m > 6 && d > 30) return null;
-        return { year: y, month: m, day: d };
-      } else {
-        // Gregorian YYYY-MM-DD date
-        if (m < 1 || m > 12 || d < 1 || d > 31) return null;
-        const dateObj = new Date(Date.UTC(y, m - 1, d));
-        if (isNaN(dateObj.getTime())) return null;
-        const info = dateToJalali(dateObj);
-        return { year: info.year, month: info.month, day: info.day };
-      }
-    }
-  }
-
-  const dateObj = new Date(clean);
-  if (!isNaN(dateObj.getTime())) {
-    const info = dateToJalali(dateObj);
-    return { year: info.year, month: info.month, day: info.day };
-  }
-
-  return null;
+export function parseJalaliDate(
+  dateStr: string,
+): { year: number; month: number; day: number } | null {
+  const date = parseJalaliOrGregorianDate(dateStr);
+  if (!date) return null;
+  const { year, month, day } = dateToJalali(date);
+  return { year, month, day };
 }
 
 export function getWeekOfMonth(day: number): number {
@@ -112,7 +81,7 @@ export function getPersianMonthName(monthNumber: number): string {
 export function filterAssessmentsForTrend(
   assessments: Assessment[],
   agents: Agent[],
-  filters: FilterOptions
+  filters: FilterOptions,
 ): Assessment[] {
   const agentMap = new Map<string, Agent>();
   agents.forEach((ag) => agentMap.set(ag.id, ag));
@@ -124,22 +93,22 @@ export function filterAssessmentsForTrend(
     const agent = agentMap.get(audit.agent_id);
 
     // Filter by specific agent
-    if (filters.agentId && filters.agentId !== 'all') {
+    if (filters.agentId && filters.agentId !== "all") {
       if (audit.agent_id !== filters.agentId) return false;
     }
 
     // Filter by team lead
-    if (filters.leadName && filters.leadName !== 'all') {
+    if (filters.leadName && filters.leadName !== "all") {
       if (!agent || agent.team_lead !== filters.leadName) return false;
     }
 
     // Filter by team
-    if (filters.team && filters.team !== 'all') {
+    if (filters.team && filters.team !== "all") {
       if (!agent || agent.team !== filters.team) return false;
     }
 
     // Filter by department
-    if (filters.department && filters.department !== 'all') {
+    if (filters.department && filters.department !== "all") {
       if (audit.form_type !== filters.department) return false;
     }
 
@@ -154,22 +123,25 @@ export function calculatePerformanceTrend(
   assessments: Assessment[],
   agents: Agent[],
   filters: FilterOptions = {},
-  granularity: 'weekly' | 'monthly' = 'weekly'
+  granularity: "weekly" | "monthly" = "weekly",
 ): { data: TrendDataPoint[]; summary: TrendSummary } {
   const filtered = filterAssessmentsForTrend(assessments, agents, filters);
 
-  const bucketMap = new Map<string, {
-    key: string;
-    label: string;
-    fullTitle: string;
-    scores: number[];
-    fraudCount: number;
-    lowScoreCount: number;
-    year: number;
-    month: number;
-    week?: number;
-    orderKey: number;
-  }>();
+  const bucketMap = new Map<
+    string,
+    {
+      key: string;
+      label: string;
+      fullTitle: string;
+      scores: number[];
+      fraudCount: number;
+      lowScoreCount: number;
+      year: number;
+      month: number;
+      week?: number;
+      orderKey: number;
+    }
+  >();
 
   filtered.forEach((audit) => {
     const parsed = parseJalaliDate(audit.check_date);
@@ -178,8 +150,8 @@ export function calculatePerformanceTrend(
     const { year, month, day } = parsed;
     const monthName = getPersianMonthName(month);
 
-    if (granularity === 'monthly') {
-      const key = `${year}-${String(month).padStart(2, '0')}`;
+    if (granularity === "monthly") {
+      const key = `${year}-${String(month).padStart(2, "0")}`;
       const orderKey = year * 100 + month;
       const label = `${monthName} ${toPersianDigits(year)}`;
       const fullTitle = `عملکرد ${monthName} ماه سال ${toPersianDigits(year)}`;
@@ -205,9 +177,16 @@ export function calculatePerformanceTrend(
     } else {
       // Weekly granularity
       const week = getWeekOfMonth(day);
-      const key = `${year}-${String(month).padStart(2, '0')}-w${week}`;
+      const key = `${year}-${String(month).padStart(2, "0")}-w${week}`;
       const orderKey = year * 1000 + month * 10 + week;
-      const weekLabelFa = week === 1 ? 'هفته ۱' : week === 2 ? 'هفته ۲' : week === 3 ? 'هفته ۳' : 'هفته ۴';
+      const weekLabelFa =
+        week === 1
+          ? "هفته ۱"
+          : week === 2
+            ? "هفته ۲"
+            : week === 3
+              ? "هفته ۳"
+              : "هفته ۴";
       const label = `${weekLabelFa} ${monthName}`;
       const fullTitle = `${weekLabelFa} ماه ${monthName} سال ${toPersianDigits(year)}`;
 
@@ -234,7 +213,9 @@ export function calculatePerformanceTrend(
   });
 
   // Sort buckets chronologically
-  const sortedBuckets = Array.from(bucketMap.values()).sort((a, b) => a.orderKey - b.orderKey);
+  const sortedBuckets = Array.from(bucketMap.values()).sort(
+    (a, b) => a.orderKey - b.orderKey,
+  );
 
   const data: TrendDataPoint[] = sortedBuckets.map((b) => {
     const volume = b.scores.length;
@@ -263,7 +244,8 @@ export function calculatePerformanceTrend(
   // Calculate overall summary metrics
   const totalVolume = data.reduce((acc, d) => acc + d.volume, 0);
   const totalScoreSum = data.reduce((acc, d) => acc + d.avgScore * d.volume, 0);
-  const overallAvgScore = totalVolume > 0 ? Math.round((totalScoreSum / totalVolume) * 10) / 10 : 0;
+  const overallAvgScore =
+    totalVolume > 0 ? Math.round((totalScoreSum / totalVolume) * 10) / 10 : 0;
 
   const currentPoint = data.length > 0 ? data[data.length - 1] : null;
   const previousPoint = data.length > 1 ? data[data.length - 2] : null;
@@ -281,7 +263,10 @@ export function calculatePerformanceTrend(
 
   if (data.length > 0) {
     const sortedByScore = [...data].sort((a, b) => b.avgScore - a.avgScore);
-    bestPeriod = { label: sortedByScore[0].label, score: sortedByScore[0].avgScore };
+    bestPeriod = {
+      label: sortedByScore[0].label,
+      score: sortedByScore[0].avgScore,
+    };
     lowestPeriod = {
       label: sortedByScore[sortedByScore.length - 1].label,
       score: sortedByScore[sortedByScore.length - 1].avgScore,

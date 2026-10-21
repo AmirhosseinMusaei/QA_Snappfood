@@ -11,14 +11,14 @@ datasource db {
 }
 
 model User {
-  id         String      @id @default(cuid())
-  username   String      @unique
-  password   String      // bcrypt hash
-  name       String
-  role       String      // 'agent' | 'team_lead' | 'manager' | 'qa_controller' | 'qa_supervisor' | 'admin'
-  department String?     // 'support' | 'sales'
-  team       String?
-  avatar     String?
+  id         String @db.NVarChar(200)      @id @default(cuid())
+  username   String @db.NVarChar(200)      @unique
+  password   String @db.NVarChar(200)      // bcrypt hash
+  name       String @db.NVarChar(200)
+  role       String @db.NVarChar(200)      // 'agent' | 'team_lead' | 'manager' | 'qa_controller' | 'qa_supervisor' | 'admin'
+  department String? @db.NVarChar(200)     // 'support' | 'sales'
+  team       String? @db.NVarChar(200)
+  avatar     String? @db.NVarChar(200)
   active     Boolean     @default(true)
   created_at DateTime    @default(now())
   updated_at DateTime    @updatedAt
@@ -30,11 +30,11 @@ model User {
 }
 
 model Team {
-  id         String      @id @default(cuid())
-  name       String      @unique
-  department String      // 'support' | 'sales'
-  lead_name  String
-  lead_id    String?
+  id         String @db.NVarChar(200)      @id @default(cuid())
+  name       String @db.NVarChar(200)      @unique
+  department String @db.NVarChar(200)      // 'support' | 'sales'
+  lead_name  String @db.NVarChar(200)
+  lead_id    String? @db.NVarChar(200)
   created_at DateTime    @default(now())
   updated_at DateTime    @updatedAt
 
@@ -46,22 +46,22 @@ model Team {
 }
 
 model Agent {
-  id                  String       @id @default(cuid())
-  source_id           String       @unique // e.g. "3718"
-  name                String
-  department          String       // 'support' | 'sales'
-  user_id             String?      @unique
-  team_id             String
-  team_name           String
-  team_lead_id        String?
-  team_lead           String
-  controller_id       String?
-  controller          String
-  operator_panel      String?      // 'CRM Sales' | 'Ring' | 'VOIP' | 'Jira'
-  sample_name         String?      @default("Random Sampling") // 'Support group' | 'bi-party' | 'Dislike' | 'Random Sampling'
-  check_process       String?      @default("if needed")       // 'if needed' | 'mandatory'
+  id                  String @db.NVarChar(200)       @id @default(cuid())
+  source_id           String @db.NVarChar(200)       @unique // e.g. "3718"
+  name                String @db.NVarChar(200)
+  department          String @db.NVarChar(200)       // 'support' | 'sales'
+  user_id             String? @db.NVarChar(200)      @unique
+  team_id             String @db.NVarChar(200)
+  team_name           String @db.NVarChar(200)
+  team_lead_id        String? @db.NVarChar(200)
+  team_lead           String @db.NVarChar(200)
+  controller_id       String? @db.NVarChar(200)
+  controller          String @db.NVarChar(200)
+  operator_panel      String? @db.NVarChar(200)      // 'CRM Sales' | 'Ring' | 'VOIP' | 'Jira'
+  sample_name         String? @db.NVarChar(200)      @default("Random Sampling") // 'Support group' | 'bi-party' | 'Dislike' | 'Random Sampling'
+  check_process       String? @db.NVarChar(200)      @default("if needed")       // 'if needed' | 'mandatory'
   min_monthly_reviews Int          @default(40)
-  avatar              String?
+  avatar              String? @db.NVarChar(200)
   active              Boolean      @default(true)
   created_at          DateTime     @default(now())
   updated_at          DateTime     @updatedAt
@@ -80,9 +80,9 @@ model Agent {
 }
 
 model AssessmentForm {
-  id          String         @id @default(cuid())
-  form_type   String         // 'support' | 'sales'
-  title       String
+  id          String @db.NVarChar(200)         @id @default(cuid())
+  form_type   String @db.NVarChar(200)         // 'support' | 'sales'
+  title       String @db.NVarChar(200)
   version     Int            @default(1)
   is_active   Boolean        @default(true)
   created_at  DateTime       @default(now())
@@ -95,10 +95,10 @@ model AssessmentForm {
 }
 
 model RubricCriteria {
-  id          String               @id @default(cuid())
-  form_id     String
-  section     String               // e.g. 'soft_skill' | 'knowledge' | 'script' | 'mistake'
-  title       String
+  id          String @db.NVarChar(200)               @id @default(cuid())
+  form_id     String @db.NVarChar(200)
+  section     String @db.NVarChar(200)               // e.g. 'soft_skill' | 'knowledge' | 'script' | 'mistake'
+  title       String @db.NVarChar(200)
   max_points  Int
   order_index Int                  @default(0)
 
@@ -109,9 +109,9 @@ model RubricCriteria {
 }
 
 model RubricCriteriaItem {
-  id          String         @id @default(cuid())
-  criteria_id String
-  title       String
+  id          String @db.NVarChar(200)         @id @default(cuid())
+  criteria_id String @db.NVarChar(200)
+  title       String @db.NVarChar(200)
   max_points  Int
   order_index Int            @default(0)
 
@@ -121,12 +121,12 @@ model RubricCriteriaItem {
 }
 
 model Fault {
-  id          String       @id @default(cuid())
-  title       String       @unique
-  department  String       // 'support' | 'sales' | 'both'
-  category    String
+  id          String @db.NVarChar(200)       @id @default(cuid())
+  title       String @db.NVarChar(200)       @unique
+  department  String @db.NVarChar(200)       // 'support' | 'sales' | 'both'
+  category    String @db.NVarChar(200)
   is_critical Boolean      @default(false)
-  description String?
+  description String? @db.NVarChar(Max)
   created_at  DateTime     @default(now())
   updated_at  DateTime     @updatedAt
 
@@ -134,46 +134,52 @@ model Fault {
 }
 
 model Assessment {
-  id                    String            @id @default(cuid())
-  agent_id              String
-  controller_id         String
-  team_id               String?
-  form_id               String?
-  form_type             String            // 'support' | 'sales'
+  id                    String @db.NVarChar(200)            @id @default(cuid())
+  agent_id              String @db.NVarChar(200)
+  controller_id         String @db.NVarChar(200)
+  team_id               String? @db.NVarChar(200)
+  form_id               String? @db.NVarChar(200)
+  form_type             String @db.NVarChar(200)            // 'support' | 'sales'
   form_version          Int?              @default(1)
-  sample_name           String            // 'Support group' | 'bi-party' | 'Dislike' | 'Random Sampling' | 'if needed'
-  vendor_id             String?
-  vendor_title          String?
+  sample_name           String @db.NVarChar(200)            // 'Support group' | 'bi-party' | 'Dislike' | 'Random Sampling' | 'if needed'
+  vendor_id             String? @db.NVarChar(200)
+  vendor_title          String? @db.NVarChar(200)
   check_date            DateTime          @default(now()) // Gregorian UTC DateTime
-  fault_id              String?
+  fault_id              String? @db.NVarChar(200)
   backend_general       Boolean           @default(false)
   is_fraud              Boolean           @default(false)
-  result                String            // 'No problem' | 'Need to check' | 'Coaching Required' | 'بررسی شده'
-  result_comment        String?
+  result                String @db.NVarChar(200)            // 'No problem' | 'Need to check' | 'Coaching Required' | 'بررسی شده'
+  result_comment        String? @db.NVarChar(Max)
 
   // Team Lead Review Workflow
   team_lead_reviewed    Boolean           @default(false)
-  team_lead_note        String?
-  team_lead_reviewed_at String?
-  action_taken          String?           // 'آموزش فردی' | 'فیدبک' | 'بررسی و اصلاح اسکریپت' | 'تحلیل تماس‌ها' | 'اصلاح فرآیند' | 'توضیح اثر خطا'
+  team_lead_note        String? @db.NVarChar(Max)
+  team_lead_reviewed_at String? @db.NVarChar(200)
+  action_taken          String? @db.NVarChar(200)           // 'آموزش فردی' | 'فیدبک' | 'بررسی و اصلاح اسکریپت' | 'تحلیل تماس‌ها' | 'اصلاح فرآیند' | 'توضیح اثر خطا'
 
   // Support Specific Fields
-  ticket_number         String?
-  voice_link            String?
-  fault_categories      String?           // JSON array string e.g. '["Vendor problem"]'
-  support_scores_json   String?           // JSON object e.g. '{"intro": 5, "courtesy": 5}'
-  description           String?
+  ticket_number         String? @db.NVarChar(200)
+  voice_link            String? @db.NVarChar(200)
+  fault_categories      String? @db.NVarChar(Max)           // JSON array string e.g. '["Vendor problem"]'
+  support_scores_json   String? @db.NVarChar(Max)           // JSON object e.g. '{"intro": 5, "courtesy": 5}'
+  description           String? @db.NVarChar(Max)
 
   // Sales Specific Fields
-  phone_number          String?
-  project               String?           // 'All Project' | 'NCR' | 'Promotion' | 'Campaign' | 'Bi-Party'
-  discount_or_coupon    String?
-  registration_date     String?
-  execution_date        String?
+  phone_number          String? @db.NVarChar(200)
+  project               String? @db.NVarChar(200)           // 'All Project' | 'NCR' | 'Promotion' | 'Campaign' | 'Bi-Party'
+  discount_or_coupon    String? @db.NVarChar(200)
+  registration_date     String? @db.NVarChar(200)
+  execution_date        String? @db.NVarChar(200)
   mistake_count         Int?              @default(0)
-  sales_scores_json     String?           // JSON object e.g. '{"greeting": 5, ...}'
+  sales_scores_json     String? @db.NVarChar(Max)           // JSON object e.g. '{"greeting": 5, ...}'
 
   // Scores
+  revision              Int               @default(1)
+  legacy_aggregate      Boolean           @default(false)
+  scoring_policy_json   String? @db.NVarChar(Max)
+  fault_is_critical     Boolean?
+  idempotency_key       String? @db.NVarChar(200)
+  request_hash          String? @db.NVarChar(200)
   total_score           Int
   created_at            DateTime          @default(now())
   updated_at            DateTime          @updatedAt
@@ -186,6 +192,7 @@ model Assessment {
   scores                AssessmentScore[]
   disputes              Dispute[]
 
+  @@index([idempotency_key])
   @@index([agent_id])
   @@index([check_date])
   @@index([team_id])
@@ -195,10 +202,10 @@ model Assessment {
 }
 
 model AssessmentScore {
-  id            String     @id @default(cuid())
-  assessment_id String
-  item_id       String     // Reference to RubricCriteriaItem id
-  criterion_id  String?
+  id            String @db.NVarChar(200)     @id @default(cuid())
+  assessment_id String @db.NVarChar(200)
+  item_id       String @db.NVarChar(200)     // Reference to RubricCriteriaItem id
+  criterion_id  String? @db.NVarChar(200)
   awarded_score Int
   max_score     Int
 
@@ -209,16 +216,16 @@ model AssessmentScore {
 }
 
 model Dispute {
-  id                 String     @id @default(cuid())
-  assessment_id      String
-  agent_id           String
-  agent_name         String
-  criterion_id       String?
-  criterion_title    String?
-  agent_comment      String
-  status             String     @default("pending") // 'pending' | 'resolved' | 'rejected'
-  controller_id      String?
-  controller_comment String?
+  id                 String @db.NVarChar(200)     @id @default(cuid())
+  assessment_id      String @db.NVarChar(200)
+  agent_id           String @db.NVarChar(200)
+  agent_name         String @db.NVarChar(200)
+  criterion_id       String? @db.NVarChar(200)
+  criterion_title    String? @db.NVarChar(200)
+  agent_comment      String @db.NVarChar(Max)
+  status             String @db.NVarChar(200)     @default("open") // 'pending' | 'resolved' | 'rejected'
+  controller_id      String? @db.NVarChar(200)
+  controller_comment String? @db.NVarChar(Max)
   original_score     Int
   revised_score      Int?
   created_at         DateTime   @default(now())
@@ -232,16 +239,16 @@ model Dispute {
 }
 
 model AuditLog {
-  id         String   @id @default(cuid())
-  user_id    String
-  user_name  String
-  user_role  String
-  entity     String   // 'assessment' | 'dispute' | 'agent' | 'rubric' | 'fault' | 'settings' | 'problem'
-  entity_id  String
-  action     String   // 'create' | 'update' | 'delete' | 'dispute_filed' | 'dispute_resolved' | 'team_lead_reviewed' | 'rubric_updated' | 'settings_updated'
-  field      String?
-  old_value  String?
-  new_value  String?
+  id         String @db.NVarChar(200)   @id @default(cuid())
+  user_id    String @db.NVarChar(200)
+  user_name  String @db.NVarChar(200)
+  user_role  String @db.NVarChar(200)
+  entity     String @db.NVarChar(200)   // 'assessment' | 'dispute' | 'agent' | 'rubric' | 'fault' | 'settings' | 'problem'
+  entity_id  String @db.NVarChar(200)
+  action     String @db.NVarChar(200)   // 'create' | 'update' | 'delete' | 'dispute_filed' | 'dispute_resolved' | 'team_lead_reviewed' | 'rubric_updated' | 'settings_updated'
+  field      String? @db.NVarChar(200)
+  old_value  String? @db.NVarChar(Max)
+  new_value  String? @db.NVarChar(Max)
   created_at DateTime @default(now())
 
   @@index([entity])
@@ -251,27 +258,37 @@ model AuditLog {
 }
 
 model Setting {
-  key         String   @id
-  value       String   // JSON string
-  description String?
+  key         String @db.NVarChar(200)   @id
+  value       String @db.NVarChar(Max)   // JSON string
+  description String? @db.NVarChar(Max)
   updated_at  DateTime @updatedAt
 }
 
 model Problem {
-  id            String    @id @default(cuid())
-  priority      String    // 'High' | 'Medium' | 'Low' | 'Critical'
-  issue_date    String    // Jalali date e.g. "۱۴۰۳/۰۷/۱۰"
-  team          String
-  category      String
-  title         String
-  description   String
-  status        String    @default("Pending") // 'Pending' | 'Resolved'
-  owner         String
-  resolved_at   String?
-  solution_note String?
+  id            String @db.NVarChar(200)    @id @default(cuid())
+  priority      String @db.NVarChar(200)    // 'High' | 'Medium' | 'Low' | 'Critical'
+  issue_date    String @db.NVarChar(200)    // Jalali date e.g. "۱۴۰۳/۰۷/۱۰"
+  team          String @db.NVarChar(200)
+  category      String @db.NVarChar(200)
+  title         String @db.NVarChar(200)
+  description   String @db.NVarChar(Max)
+  status        String @db.NVarChar(200)    @default("Pending") // 'Pending' | 'Resolved'
+  owner         String @db.NVarChar(200)
+  resolved_at   String? @db.NVarChar(200)
+  solution_note String? @db.NVarChar(Max)
   created_at    DateTime  @default(now())
   updated_at    DateTime  @updatedAt
 
   @@index([team])
   @@index([status])
+}
+
+// Opaque server-side sessions: revocation is durable and shared across workers.
+model Session {
+  token_hash String @db.NVarChar(200) @id
+  user_id String @db.NVarChar(200)
+  expires_at DateTime
+  created_at DateTime @default(now())
+  @@index([user_id])
+  @@index([expires_at])
 }

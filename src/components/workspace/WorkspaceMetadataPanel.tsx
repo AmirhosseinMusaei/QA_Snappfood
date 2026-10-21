@@ -1,11 +1,12 @@
-import React from 'react';
+import { useApp } from "../../context/AppContext.tsx";
+import React from "react";
 import {
   UserCheck as UserCheckIcon,
   Search,
   Store,
   ExternalLink,
   AlertTriangle,
-} from 'lucide-react';
+} from "lucide-react";
 import {
   Agent,
   DepartmentType,
@@ -14,33 +15,33 @@ import {
   SupportFaultCategory,
   SalesProject,
   Fault,
-} from '../../types/index.ts';
-import { toPersianDigits } from '../../utils/persian.ts';
-import { AudioWaveformPlayer } from '../AudioWaveformPlayer.tsx';
+} from "../../types/index.ts";
+import { toPersianDigits } from "../../utils/persian.ts";
+import { AudioWaveformPlayer } from "../AudioWaveformPlayer.tsx";
 
 export const SUPPORT_FAULT_CATEGORIES: SupportFaultCategory[] = [
-  'Snappfood problem',
-  'Vendor problem',
-  'Policy problem',
-  'Process problem',
-  'Support problem',
-  'Other teams',
+  "Snappfood problem",
+  "Vendor problem",
+  "Policy problem",
+  "Process problem",
+  "Support problem",
+  "Other teams",
 ];
 
 export const SALES_PROJECTS: SalesProject[] = [
-  'All Project',
-  'NCR',
-  'Promotion',
-  'Campaign',
-  'Bi-Party',
+  "All Project",
+  "NCR",
+  "Promotion",
+  "Campaign",
+  "Bi-Party",
 ];
 
 export const SAMPLE_NAMES: SampleType[] = [
-  'Support group',
-  'bi-party',
-  'Dislike',
-  'Random Sampling',
-  'if needed',
+  "Support group",
+  "bi-party",
+  "Dislike",
+  "Random Sampling",
+  "if needed",
 ];
 
 export interface WorkspaceMetadataPanelProps {
@@ -144,11 +145,12 @@ export const WorkspaceMetadataPanel: React.FC<WorkspaceMetadataPanelProps> = ({
   resultComment,
   setResultComment,
 }) => {
+  const { settings } = useApp();
   const filteredAgents = agents.filter(
     (a) =>
       a.name.toLowerCase().includes(agentSearch.toLowerCase()) ||
       a.source_id.includes(agentSearch) ||
-      a.team.toLowerCase().includes(agentSearch.toLowerCase())
+      a.team.toLowerCase().includes(agentSearch.toLowerCase()),
   );
 
   return (
@@ -171,10 +173,10 @@ export const WorkspaceMetadataPanel: React.FC<WorkspaceMetadataPanelProps> = ({
           >
             <div className="flex items-center gap-2">
               <span className="font-semibold text-xs text-slate-800 dark:text-slate-200">
-                {selectedAgent?.name || 'انتخاب کارشناس'}
+                {selectedAgent?.name || "انتخاب کارشناس"}
               </span>
               <span className="text-[11px] px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300">
-                کد {toPersianDigits(selectedAgent?.source_id || '')}
+                کد {toPersianDigits(selectedAgent?.source_id || "")}
               </span>
             </div>
             <Search className="w-3.5 h-3.5 text-slate-400" />
@@ -200,8 +202,8 @@ export const WorkspaceMetadataPanel: React.FC<WorkspaceMetadataPanelProps> = ({
                     }}
                     className={`w-full text-right px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition ${
                       selectedAgent?.id === ag.id
-                        ? 'bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-200 font-bold'
-                        : 'hover:bg-slate-100 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-300'
+                        ? "bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-200 font-bold"
+                        : "hover:bg-slate-100 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-300"
                     }`}
                   >
                     <span>{ag.name}</span>
@@ -218,27 +220,36 @@ export const WorkspaceMetadataPanel: React.FC<WorkspaceMetadataPanelProps> = ({
         {/* Auto-filled Agent Metadata Badges */}
         <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-slate-100 dark:border-slate-700/60">
           <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/40">
-            <span className="text-[11px] text-slate-400 block">تیم عملیاتی:</span>
+            <span className="text-[11px] text-slate-400 block">
+              تیم عملیاتی:
+            </span>
             <span className="font-semibold text-slate-800 dark:text-slate-200">
-              {selectedAgent?.team || 'عملیات'} ({selectedAgent?.department === 'support' ? 'پشتیبانی' : 'فروش'})
+              {selectedAgent?.team || "عملیات"} (
+              {selectedAgent?.department === "support" ? "پشتیبانی" : "فروش"})
             </span>
           </div>
           <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/40">
-            <span className="text-[11px] text-slate-400 block">سرپرست تیم (Lead):</span>
+            <span className="text-[11px] text-slate-400 block">
+              سرپرست تیم (Lead):
+            </span>
             <span className="font-semibold text-slate-800 dark:text-slate-200">
-              {selectedAgent?.team_lead || 'نگین رضایی'}
+              {selectedAgent?.team_lead || "نگین رضایی"}
             </span>
           </div>
           {selectedAgent?.operator_panel && (
             <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/40">
-              <span className="text-[11px] text-slate-400 block">پنل کاربری:</span>
+              <span className="text-[11px] text-slate-400 block">
+                پنل کاربری:
+              </span>
               <span className="font-semibold text-slate-800 dark:text-slate-200">
                 {selectedAgent.operator_panel}
               </span>
             </div>
           )}
           <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/40">
-            <span className="text-[11px] text-slate-400 block">کنترلر تخصیص‌یافته:</span>
+            <span className="text-[11px] text-slate-400 block">
+              کنترلر تخصیص‌یافته:
+            </span>
             <span className="font-semibold text-slate-800 dark:text-slate-200">
               {selectedAgent?.controller || currentControllerId}
             </span>
@@ -250,7 +261,9 @@ export const WorkspaceMetadataPanel: React.FC<WorkspaceMetadataPanelProps> = ({
       <div className="bg-white dark:bg-slate-800/90 rounded-2xl p-5 border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
         <div className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center justify-between">
           <span>مشخصات تعامل و وندور</span>
-          <span className="text-[11px] font-normal text-slate-400">تاریخ: {toPersianDigits(checkDate)}</span>
+          <span className="text-[11px] font-normal text-slate-400">
+            تاریخ: {toPersianDigits(checkDate)}
+          </span>
         </div>
 
         {/* Sample Type & Date */}
@@ -332,7 +345,7 @@ export const WorkspaceMetadataPanel: React.FC<WorkspaceMetadataPanelProps> = ({
         </div>
 
         {/* Support Specific Inputs */}
-        {formType === 'support' && (
+        {formType === "support" && (
           <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-700">
             <div>
               <div className="flex items-center justify-between mb-1">
@@ -353,8 +366,8 @@ export const WorkspaceMetadataPanel: React.FC<WorkspaceMetadataPanelProps> = ({
                 onChange={(e) => setTicketNumber(e.target.value)}
                 className={`w-full text-xs p-2 rounded-xl border font-mono ${
                   isDuplicateTicket
-                    ? 'border-amber-400 bg-amber-50/50 dark:bg-amber-950/20'
-                    : 'border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700'
+                    ? "border-amber-400 bg-amber-50/50 dark:bg-amber-950/20"
+                    : "border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700"
                 } text-slate-800 dark:text-slate-100`}
               />
             </div>
@@ -374,8 +387,8 @@ export const WorkspaceMetadataPanel: React.FC<WorkspaceMetadataPanelProps> = ({
                       onClick={() => toggleFaultCategory(cat)}
                       className={`px-2.5 py-1 rounded-lg text-xs font-medium transition ${
                         active
-                          ? 'bg-sky-600 text-white shadow-sm'
-                          : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                          ? "bg-sky-600 text-white shadow-sm"
+                          : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
                       }`}
                     >
                       {cat}
@@ -403,7 +416,7 @@ export const WorkspaceMetadataPanel: React.FC<WorkspaceMetadataPanelProps> = ({
         )}
 
         {/* Sales Specific Inputs */}
-        {formType === 'sales' && (
+        {formType === "sales" && (
           <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-700">
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -505,10 +518,12 @@ export const WorkspaceMetadataPanel: React.FC<WorkspaceMetadataPanelProps> = ({
           >
             <option value="">بدون خطا (No Fault)</option>
             {faults
-              .filter((f) => f.department === 'both' || f.department === formType)
+              .filter(
+                (f) => f.department === "both" || f.department === formType,
+              )
               .map((f) => (
                 <option key={f.id} value={f.id}>
-                  {f.title} {f.is_critical ? '⚠️ (خطای بحرانی)' : ''}
+                  {f.title} {f.is_critical ? "⚠️ (خطای بحرانی)" : ""}
                 </option>
               ))}
           </select>
@@ -552,9 +567,18 @@ export const WorkspaceMetadataPanel: React.FC<WorkspaceMetadataPanelProps> = ({
             onChange={(e) => setResult(e.target.value as AssessmentResult)}
             className="w-full text-xs p-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-800 dark:text-slate-100 font-semibold"
           >
-            <option value="No problem">بدون مشکل (No problem)</option>
-            <option value="Need to check">نیازمند بررسی لید (Need to check)</option>
-            <option value="Coaching Required">نیازمند آموزش و کوچینگ (Coaching Required)</option>
+            {(
+              settings.result_options || [
+                "No problem",
+                "Need to check",
+                "Coaching Required",
+                "بررسی شده",
+              ]
+            ).map((r) => (
+              <option value={r} key={r}>
+                {r}
+              </option>
+            ))}
           </select>
 
           <textarea

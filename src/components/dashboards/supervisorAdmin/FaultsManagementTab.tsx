@@ -1,20 +1,12 @@
-import React, { useState } from 'react';
-import {
-  ShieldAlert,
-  Edit2,
-  Trash2,
-  X,
-} from 'lucide-react';
-import {
-  Fault,
-  DepartmentType,
-} from '../../../types/index.ts';
+import React, { useState } from "react";
+import { ShieldAlert, Edit2, Trash2, X } from "lucide-react";
+import { Fault, DepartmentType } from "../../../types/index.ts";
 
 interface FaultsManagementTabProps {
   faults: Fault[];
-  addFault: (fault: Omit<Fault, 'id'>) => void;
-  updateFault: (id: string, updates: Partial<Fault>) => void;
-  deleteFault: (id: string) => void;
+  addFault: (fault: Omit<Fault, "id">) => Promise<void>;
+  updateFault: (id: string, updates: Partial<Fault>) => Promise<void>;
+  deleteFault: (id: string) => Promise<void>;
   showModal: boolean;
   setShowModal: (show: boolean) => void;
 }
@@ -29,32 +21,34 @@ export const FaultsManagementTab: React.FC<FaultsManagementTabProps> = ({
 }) => {
   const [editingFault, setEditingFault] = useState<Fault | null>(null);
   const [faultForm, setFaultForm] = useState({
-    title: '',
-    department: 'both' as DepartmentType | 'both',
-    category: 'Process problem',
+    title: "",
+    department: "both" as DepartmentType | "both",
+    category: "Process problem",
     is_critical: false,
-    description: '',
+    description: "",
   });
 
-  const handleSaveFault = (e: React.FormEvent) => {
+  const handleSaveFault = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!faultForm.title.trim()) return;
 
-    if (editingFault) {
-      updateFault(editingFault.id, faultForm);
-      setEditingFault(null);
-    } else {
-      addFault(faultForm);
-    }
+    try {
+      if (editingFault) {
+        await updateFault(editingFault.id, faultForm);
+        setEditingFault(null);
+      } else {
+        await addFault(faultForm);
+      }
 
-    setShowModal(false);
-    setFaultForm({
-      title: '',
-      department: 'both',
-      category: 'Process problem',
-      is_critical: false,
-      description: '',
-    });
+      setShowModal(false);
+      setFaultForm({
+        title: "",
+        department: "both",
+        category: "Process problem",
+        is_critical: false,
+        description: "",
+      });
+    } catch {}
   };
 
   return (
@@ -65,7 +59,8 @@ export const FaultsManagementTab: React.FC<FaultsManagementTabProps> = ({
             ماتریس خطاهای سیستمی، وندور و رفتاری (Faults Master List)
           </h3>
           <p className="text-[11px] text-slate-400">
-            خطاهای بحرانی (Critical) منجر به صفر شدن آنی نمره کل ارزیابی می‌گردند.
+            خطاهای بحرانی (Critical) منجر به صفر شدن آنی نمره کل ارزیابی
+            می‌گردند.
           </p>
         </div>
       </div>
@@ -84,13 +79,20 @@ export const FaultsManagementTab: React.FC<FaultsManagementTabProps> = ({
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60 font-sans">
             {faults.map((f) => (
-              <tr key={f.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-750 transition">
+              <tr
+                key={f.id}
+                className="hover:bg-slate-50/70 dark:hover:bg-slate-750 transition"
+              >
                 <td className="py-3 px-3 font-bold text-slate-800 dark:text-slate-100">
                   {f.title}
                 </td>
                 <td className="py-3 px-3">
                   <span className="text-[11px] px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700">
-                    {f.department === 'both' ? 'هر دو واحد' : f.department === 'support' ? 'پشتیبانی' : 'فروش'}
+                    {f.department === "both"
+                      ? "هر دو واحد"
+                      : f.department === "support"
+                        ? "پشتیبانی"
+                        : "فروش"}
                   </span>
                 </td>
                 <td className="py-3 px-3 text-slate-600 dark:text-slate-300 font-medium">
@@ -107,8 +109,11 @@ export const FaultsManagementTab: React.FC<FaultsManagementTabProps> = ({
                     </span>
                   )}
                 </td>
-                <td className="py-3 px-3 text-slate-400 max-w-[200px] truncate" title={f.description}>
-                  {f.description || '-'}
+                <td
+                  className="py-3 px-3 text-slate-400 max-w-[200px] truncate"
+                  title={f.description}
+                >
+                  {f.description || "-"}
                 </td>
                 <td className="py-3 px-3 text-left">
                   <div className="flex items-center justify-end gap-1.5">
@@ -121,7 +126,7 @@ export const FaultsManagementTab: React.FC<FaultsManagementTabProps> = ({
                           department: f.department,
                           category: f.category,
                           is_critical: f.is_critical,
-                          description: f.description || '',
+                          description: f.description || "",
                         });
                         setShowModal(true);
                       }}
@@ -133,8 +138,10 @@ export const FaultsManagementTab: React.FC<FaultsManagementTabProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        if (confirm(`آیا از حذف خطای "${f.title}" اطمینان دارید؟`)) {
-                          deleteFault(f.id);
+                        if (
+                          confirm(`آیا از حذف خطای "${f.title}" اطمینان دارید؟`)
+                        ) {
+                          deleteFault(f.id).catch(() => {});
                         }
                       }}
                       className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
@@ -157,7 +164,11 @@ export const FaultsManagementTab: React.FC<FaultsManagementTabProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700">
               <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <ShieldAlert className="w-4 h-4 text-rose-600" />
-                <span>{editingFault ? 'ویرایش عنوان خطا' : 'تعریف خطای جدید در ماتریس'}</span>
+                <span>
+                  {editingFault
+                    ? "ویرایش عنوان خطا"
+                    : "تعریف خطای جدید در ماتریس"}
+                </span>
               </h3>
               <button
                 type="button"
@@ -181,7 +192,9 @@ export const FaultsManagementTab: React.FC<FaultsManagementTabProps> = ({
                   required
                   placeholder="مثال: عدم ارائه پاسخ صحیح به مشتری"
                   value={faultForm.title}
-                  onChange={(e) => setFaultForm({ ...faultForm, title: e.target.value })}
+                  onChange={(e) =>
+                    setFaultForm({ ...faultForm, title: e.target.value })
+                  }
                   className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
                 />
               </div>
@@ -196,7 +209,7 @@ export const FaultsManagementTab: React.FC<FaultsManagementTabProps> = ({
                     onChange={(e) =>
                       setFaultForm({
                         ...faultForm,
-                        department: e.target.value as DepartmentType | 'both',
+                        department: e.target.value as DepartmentType | "both",
                       })
                     }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
@@ -213,7 +226,9 @@ export const FaultsManagementTab: React.FC<FaultsManagementTabProps> = ({
                   <input
                     type="text"
                     value={faultForm.category}
-                    onChange={(e) => setFaultForm({ ...faultForm, category: e.target.value })}
+                    onChange={(e) =>
+                      setFaultForm({ ...faultForm, category: e.target.value })
+                    }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
                   />
                 </div>
@@ -225,13 +240,19 @@ export const FaultsManagementTab: React.FC<FaultsManagementTabProps> = ({
                     خطای بحرانی (Critical Fault)
                   </div>
                   <div className="text-[10px] text-slate-400">
-                    انتخاب این خطا در ارزیابی منجر به صفر شدن فوری امتیاز کل می‌شود.
+                    انتخاب این خطا در ارزیابی منجر به صفر شدن فوری امتیاز کل
+                    می‌شود.
                   </div>
                 </div>
                 <input
                   type="checkbox"
                   checked={faultForm.is_critical}
-                  onChange={(e) => setFaultForm({ ...faultForm, is_critical: e.target.checked })}
+                  onChange={(e) =>
+                    setFaultForm({
+                      ...faultForm,
+                      is_critical: e.target.checked,
+                    })
+                  }
                   className="w-4 h-4 text-rose-600 rounded"
                 />
               </div>
@@ -243,7 +264,9 @@ export const FaultsManagementTab: React.FC<FaultsManagementTabProps> = ({
                 <textarea
                   rows={2}
                   value={faultForm.description}
-                  onChange={(e) => setFaultForm({ ...faultForm, description: e.target.value })}
+                  onChange={(e) =>
+                    setFaultForm({ ...faultForm, description: e.target.value })
+                  }
                   className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
                 />
               </div>
@@ -263,7 +286,7 @@ export const FaultsManagementTab: React.FC<FaultsManagementTabProps> = ({
                   type="submit"
                   className="px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold"
                 >
-                  {editingFault ? 'ذخیره تغییرات' : 'افزودن خطا'}
+                  {editingFault ? "ذخیره تغییرات" : "افزودن خطا"}
                 </button>
               </div>
             </form>

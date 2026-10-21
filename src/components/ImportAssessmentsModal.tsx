@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef } from "react";
 import {
   Upload,
   FileText,
@@ -12,9 +12,9 @@ import {
   Database,
   ArrowRight,
   RefreshCw,
-} from 'lucide-react';
-import { useApp } from '../context/AppContext.tsx';
-import { toPersianDigits } from '../utils/persian.ts';
+} from "lucide-react";
+import { useApp } from "../context/AppContext.tsx";
+import { toPersianDigits } from "../utils/persian.ts";
 
 interface ImportError {
   row: string;
@@ -41,12 +41,15 @@ interface ImportAssessmentsModalProps {
   onClose: () => void;
 }
 
-export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ isOpen, onClose }) => {
+export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({
+  isOpen,
+  onClose,
+}) => {
   const { refreshData } = useApp();
 
-  const [activeMode, setActiveMode] = useState<'upload' | 'paste'>('upload');
-  const [csvContent, setCsvContent] = useState<string>('');
-  const [fileName, setFileName] = useState<string>('');
+  const [activeMode, setActiveMode] = useState<"upload" | "paste">("upload");
+  const [csvContent, setCsvContent] = useState<string>("");
+  const [fileName, setFileName] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -76,10 +79,10 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
     const reader = new FileReader();
     reader.onload = (evt) => {
       const text = evt.target?.result as string;
-      setCsvContent(text || '');
+      setCsvContent(text || "");
     };
     reader.onerror = () => {
-      setErrorMsg('خطا در خواندن فایل. لطفاً مجدداً امتحان کنید.');
+      setErrorMsg("خطا در خواندن فایل. لطفاً مجدداً امتحان کنید.");
     };
     reader.readAsText(file);
   };
@@ -87,31 +90,43 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
   // Download Sample CSV Template
   const handleDownloadTemplate = () => {
     const sampleHeaders = [
-      'کد سورس کارشناس',
-      'نام کارشناس',
-      'واحد سازمانی',
-      'تاریخ بررسی (شمسی)',
-      'شناسه وندور',
-      'نام مجموعه / وندور',
-      'نمره کل',
-      'شماره تیکت / تماس',
-      'نتیجه ارزیابی',
+      "source_id",
+      "controller_id",
+      "check_date",
+      "vendor_id",
+      "vendor_title",
+      "total_score",
+      "ticket_number",
+      "phone_number",
+      "result",
+      "is_fraud",
+      "backend_general",
     ];
-
     const sampleRows = [
-      ['3718', 'علی محمدی', 'پشتیبانی', '۱۴۰۳/۰۷/۱۵', 'v-1024', 'رستوران شاندیز', '95', 'T-884920', 'No problem'],
-      ['4102', 'فاطمه احمدی', 'فروش', '۱۴۰۳/۰۷/۱۶', 'v-2051', 'کافه پاریس', '88', '09121112233', 'Need to check'],
-      ['3820', 'رضا کریمی', 'پشتیبانی', '۱۴۰۳/۰۷/۱۸', 'v-1090', 'سوپرمارکت ارکیده', '100', 'T-885102', 'No problem'],
+      [
+        "REPLACE_WITH_AGENT_SOURCE",
+        "REPLACE_WITH_ORIGINAL_CONTROLLER",
+        "1405/07/01",
+        "0000123",
+        "Vendor title",
+        "95",
+        "T-1",
+        "",
+        "No problem",
+        "false",
+        "false",
+      ],
     ];
-
     const csvStr =
-      'data:text/csv;charset=utf-8,\uFEFF' +
-      [sampleHeaders.join(','), ...sampleRows.map((r) => r.join(','))].join('\n');
+      "data:text/csv;charset=utf-8,\uFEFF" +
+      [sampleHeaders.join(","), ...sampleRows.map((r) => r.join(","))].join(
+        "\n",
+      );
 
     const encodedUri = encodeURI(csvStr);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', 'sample_assessments_template.csv');
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "sample_assessments_template.csv");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -120,7 +135,9 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
   // Run Dry-Run Preview
   const handleRunDryRun = async () => {
     if (!csvContent.trim()) {
-      setErrorMsg('لطفاً ابتدا فایل CSV را بارگذاری کرده یا متن آن را در کادر جای‌گذاری کنید.');
+      setErrorMsg(
+        "لطفاً ابتدا فایل CSV را بارگذاری کرده یا متن آن را در کادر جای‌گذاری کنید.",
+      );
       return;
     }
 
@@ -129,9 +146,9 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
     setImportSuccess(false);
 
     try {
-      const res = await fetch('/api/assessments/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/assessments/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           csvText: csvContent,
           dryRun: true,
@@ -140,7 +157,9 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.message || 'خطا در ارزیابی و پردازش اولیه فایل CSV');
+        throw new Error(
+          data.message || "خطا در ارزیابی و پردازش اولیه فایل CSV",
+        );
       }
 
       setDryRunDone(true);
@@ -150,7 +169,7 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
       setErrors(data.errors || []);
       setPreviewItems(data.preview || []);
     } catch (err: any) {
-      setErrorMsg(err.message || 'خطای برقراری ارتباط با سرور');
+      setErrorMsg(err.message || "خطای برقراری ارتباط با سرور");
       setDryRunDone(false);
     } finally {
       setLoading(false);
@@ -160,7 +179,7 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
   // Confirm Final Persistence
   const handleConfirmImport = async () => {
     if (validCount === 0) {
-      setErrorMsg('هیچ رکورد معتبری برای ذخیره در پایگاه داده وجود ندارد.');
+      setErrorMsg("هیچ رکورد معتبری برای ذخیره در پایگاه داده وجود ندارد.");
       return;
     }
 
@@ -168,9 +187,9 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
     setErrorMsg(null);
 
     try {
-      const res = await fetch('/api/assessments/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/assessments/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           csvText: csvContent,
           dryRun: false,
@@ -179,13 +198,15 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.message || 'خطا در ثبت نهایی ارزیابی‌ها در پایگاه داده');
+        throw new Error(
+          data.message || "خطا در ثبت نهایی ارزیابی‌ها در پایگاه داده",
+        );
       }
 
       setImportSuccess(true);
       await refreshData();
     } catch (err: any) {
-      setErrorMsg(err.message || 'خطا در ذخیره‌سازی داده‌ها');
+      setErrorMsg(err.message || "خطا در ذخیره‌سازی داده‌ها");
     } finally {
       setLoading(false);
     }
@@ -205,7 +226,8 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
                 ایمپورت سوابق ارزیابی گذشته (Historical CSV Import)
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                بارگذاری گروهی فایل ارزیابی‌های گذشته با پیش‌نمایش و اعتبارسنجی اولیه (Dry Run)
+                بارگذاری گروهی فایل ارزیابی‌های گذشته با پیش‌نمایش و اعتبارسنجی
+                اولیه (Dry Run)
               </p>
             </div>
           </div>
@@ -236,9 +258,13 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
             <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 flex items-start gap-3">
               <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
               <div className="space-y-1">
-                <div className="font-bold text-sm">ارزیابی‌ها با موفقیت در سیستم ثبت شدند!</div>
+                <div className="font-bold text-sm">
+                  ارزیابی‌ها با موفقیت در سیستم ثبت شدند!
+                </div>
                 <p className="text-emerald-700 dark:text-emerald-400">
-                  تعداد {toPersianDigits(validCount)} ارزیابی با موفقیت در پایگاه داده ذخیره شد و داده‌های گزارش‌ها و داشبوردها به‌روزرسانی گردید.
+                  تعداد {toPersianDigits(validCount)} ارزیابی با موفقیت در
+                  پایگاه داده ذخیره شد و داده‌های گزارش‌ها و داشبوردها
+                  به‌روزرسانی گردید.
                 </p>
                 <div className="pt-2">
                   <button
@@ -266,11 +292,11 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
             <div className="flex border-b border-slate-200 dark:border-slate-700 pb-3 gap-3">
               <button
                 type="button"
-                onClick={() => setActiveMode('upload')}
+                onClick={() => setActiveMode("upload")}
                 className={`flex items-center gap-2 pb-1.5 font-bold border-b-2 transition ${
-                  activeMode === 'upload'
-                    ? 'border-sky-600 text-sky-600 dark:text-sky-400'
-                    : 'border-transparent text-slate-400 hover:text-slate-600'
+                  activeMode === "upload"
+                    ? "border-sky-600 text-sky-600 dark:text-sky-400"
+                    : "border-transparent text-slate-400 hover:text-slate-600"
                 }`}
               >
                 <Upload className="w-4 h-4" />
@@ -278,11 +304,11 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
               </button>
               <button
                 type="button"
-                onClick={() => setActiveMode('paste')}
+                onClick={() => setActiveMode("paste")}
                 className={`flex items-center gap-2 pb-1.5 font-bold border-b-2 transition ${
-                  activeMode === 'paste'
-                    ? 'border-sky-600 text-sky-600 dark:text-sky-400'
-                    : 'border-transparent text-slate-400 hover:text-slate-600'
+                  activeMode === "paste"
+                    ? "border-sky-600 text-sky-600 dark:text-sky-400"
+                    : "border-transparent text-slate-400 hover:text-slate-600"
                 }`}
               >
                 <FileText className="w-4 h-4" />
@@ -294,7 +320,7 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
           {/* Upload or Paste Area */}
           {!importSuccess && (
             <>
-              {activeMode === 'upload' ? (
+              {activeMode === "upload" ? (
                 <div
                   onClick={() => fileInputRef.current?.click()}
                   className="border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-sky-500 rounded-2xl p-6 text-center cursor-pointer transition bg-slate-50/50 dark:bg-slate-900/20 hover:bg-sky-50/20 space-y-2"
@@ -310,10 +336,13 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
                     <Upload className="w-6 h-6" />
                   </div>
                   <div className="font-semibold text-slate-800 dark:text-slate-200 text-sm">
-                    {fileName ? `فایل انتخاب‌شده: ${fileName}` : 'برای انتخاب فایل CSV کلیک کنید یا آن را اینجا رها نمایید'}
+                    {fileName
+                      ? `فایل انتخاب‌شده: ${fileName}`
+                      : "برای انتخاب فایل CSV کلیک کنید یا آن را اینجا رها نمایید"}
                   </div>
                   <p className="text-slate-400 text-[11px]">
-                    پشتیبانی از فایل‌های CSV استاندارد با کدگذاری UTF-8 یا UTF-8 BOM
+                    پشتیبانی از فایل‌های CSV استاندارد با کدگذاری UTF-8 یا UTF-8
+                    BOM
                   </p>
                 </div>
               ) : (
@@ -357,7 +386,9 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
               {/* Stats Counters */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 flex items-center justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">کل سطرهای پردازش‌شده:</span>
+                  <span className="text-slate-500 dark:text-slate-400">
+                    کل سطرهای پردازش‌شده:
+                  </span>
                   <span className="font-mono font-bold text-sm text-slate-800 dark:text-slate-100">
                     {toPersianDigits(totalRows)}
                   </span>
@@ -389,7 +420,10 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
                 <div className="p-3.5 rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/20 space-y-2">
                   <div className="font-bold text-rose-900 dark:text-rose-200 flex items-center gap-1.5">
                     <AlertTriangle className="w-4 h-4 text-rose-600" />
-                    <span>گزارش خطاهای اعتبارسنجی ({toPersianDigits(errors.length)} مورد):</span>
+                    <span>
+                      گزارش خطاهای اعتبارسنجی ({toPersianDigits(errors.length)}{" "}
+                      مورد):
+                    </span>
                   </div>
                   <div className="max-h-36 overflow-y-auto space-y-1.5 text-[11px] pr-1">
                     {errors.map((err, idx) => (
@@ -412,10 +446,12 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-slate-800 dark:text-slate-200">
-                      پیش‌نمایش داده‌های معتبر آماده ایمپورت (نمایش حداکثر ۱۵ سطر):
+                      پیش‌نمایش داده‌های معتبر آماده ایمپورت (نمایش حداکثر ۱۵
+                      سطر):
                     </span>
                     <span className="text-[11px] text-slate-400">
-                      تاریخ‌ها به صورت میلادی UTC در پایگاه داده و شمسی در خروجی ذخیره خواهند شد.
+                      تاریخ‌ها به صورت میلادی UTC در پایگاه داده و شمسی در خروجی
+                      ذخیره خواهند شد.
                     </span>
                   </div>
 
@@ -435,7 +471,10 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                         {previewItems.map((item, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/30">
+                          <tr
+                            key={idx}
+                            className="hover:bg-slate-50/50 dark:hover:bg-slate-700/30"
+                          >
                             <td className="py-2 px-2.5 font-semibold text-slate-800 dark:text-slate-200">
                               {item.agent_name || item.agent_id}
                             </td>
@@ -444,23 +483,25 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
                             </td>
                             <td className="py-2 px-2.5">
                               <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
-                                {item.form_type === 'support' ? 'پشتیبانی' : 'فروش'}
+                                {item.form_type === "support"
+                                  ? "پشتیبانی"
+                                  : "فروش"}
                               </span>
                             </td>
                             <td className="py-2 px-2.5 font-mono text-slate-600 dark:text-slate-300">
-                              {item.check_date_jalali || '-'}
+                              {item.check_date_jalali || "-"}
                             </td>
                             <td className="py-2 px-2.5 text-slate-700 dark:text-slate-300">
-                              {item.vendor_title || '-'}
+                              {item.vendor_title || "-"}
                             </td>
                             <td className="py-2 px-2.5 font-mono text-slate-500">
-                              {item.ticket_number || item.phone_number || '-'}
+                              {item.ticket_number || item.phone_number || "-"}
                             </td>
                             <td className="py-2 px-2.5 text-center font-mono font-bold text-sky-600 dark:text-sky-400">
                               {toPersianDigits(item.total_score)}
                             </td>
                             <td className="py-2 px-2.5 text-slate-500">
-                              {item.result || 'No problem'}
+                              {item.result || "No problem"}
                             </td>
                           </tr>
                         ))}
@@ -476,7 +517,7 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
                   <div className="text-xs text-slate-500">
                     {validCount > 0
                       ? `آماده ذخیره ${toPersianDigits(validCount)} ارزیابی در پایگاه داده Prisma.`
-                      : 'هیچ سطر معتبری یافت نشد. لطفاً فایل را اصلاح و مجدداً بارگذاری کنید.'}
+                      : "هیچ سطر معتبری یافت نشد. لطفاً فایل را اصلاح و مجدداً بارگذاری کنید."}
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -498,7 +539,10 @@ export const ImportAssessmentsModal: React.FC<ImportAssessmentsModalProps> = ({ 
                       ) : (
                         <Database className="w-4 h-4" />
                       )}
-                      <span>تایید و ثبت نهایی در پایگاه داده ({toPersianDigits(validCount)} ارزیابی)</span>
+                      <span>
+                        تایید و ثبت نهایی در پایگاه داده (
+                        {toPersianDigits(validCount)} ارزیابی)
+                      </span>
                     </button>
                   </div>
                 </div>

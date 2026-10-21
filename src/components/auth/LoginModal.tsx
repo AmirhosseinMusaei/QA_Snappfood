@@ -1,26 +1,32 @@
-import React, { useState } from 'react';
-import { ShieldCheck, Lock, User as UserIcon, LogIn, AlertCircle, Sparkles } from 'lucide-react';
-import { useApp } from '../../context/AppContext.tsx';
-import { UserRole } from '../../types/index.ts';
+import React, { useState } from "react";
+import {
+  ShieldCheck,
+  Lock,
+  User as UserIcon,
+  LogIn,
+  AlertCircle,
+  Sparkles,
+} from "lucide-react";
+import { useApp } from "../../context/AppContext.tsx";
+import { UserRole } from "../../types/index.ts";
 
 interface LoginModalProps {
   isOpen: boolean;
   onClose?: () => void;
 }
 
-const QUICK_USERS: Array<{ label: string; username: string; role: UserRole; roleLabel: string; color: string }> = [
-  { label: 'مدیر کل (Admin)', username: 'admin', role: 'admin', roleLabel: 'ادمین سیستم', color: 'bg-rose-500' },
-  { label: 'سوپروایزر (Supervisor)', username: 'supervisor', role: 'qa_supervisor', roleLabel: 'سوپروایزر کیفیت', color: 'bg-amber-500' },
-  { label: 'میثم کاظمی (QA)', username: 'meysam', role: 'qa_controller', roleLabel: 'کنترلر کیفیت', color: 'bg-sky-500' },
-  { label: 'نگین رضایی (Lead)', username: 'negin', role: 'team_lead', roleLabel: 'سرپرست فروش', color: 'bg-indigo-500' },
-  { label: 'مهرداد صادقی (Manager)', username: 'mgr_sales', role: 'manager', roleLabel: 'مدیر فروش', color: 'bg-purple-500' },
-  { label: 'محیا ممیزاده (Agent)', username: 'mahya', role: 'agent', roleLabel: 'کارشناس کمپین', color: 'bg-emerald-500' },
-];
+const QUICK_USERS: Array<{
+  label: string;
+  username: string;
+  role: UserRole;
+  roleLabel: string;
+  color: string;
+}> = [];
 
 export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
   const { login } = useApp();
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('snappfood123');
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,7 +35,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !password) {
-      setError('لطفاً نام کاربری و رمز عبور را وارد فرمایید.');
+      setError("لطفاً نام کاربری و رمز عبور را وارد فرمایید.");
       return;
     }
 
@@ -37,22 +43,22 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
       setLoading(true);
       setError(null);
 
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setError(data.message || 'نام کاربری یا رمز عبور اشتباه است.');
+        setError(data.message || "نام کاربری یا رمز عبور اشتباه است.");
         return;
       }
 
       login(data.user);
       if (onClose) onClose();
     } catch (err: any) {
-      setError('خطا در برقراری ارتباط با سرور. لطفاً مجدداً تلاش فرمایید.');
+      setError("خطا در برقراری ارتباط با سرور. لطفاً مجدداً تلاش فرمایید.");
     } finally {
       setLoading(false);
     }
@@ -60,7 +66,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
 
   const handleQuickSelect = (u: string) => {
     setUsername(u);
-    setPassword('snappfood123');
+    setPassword("");
     setError(null);
   };
 
@@ -100,7 +106,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
-                placeholder="مثال: admin یا meysam یا negin"
+                aria-label="نام کاربری"
+                placeholder="نام کاربری شما"
                 className="w-full text-xs py-2.5 pr-9 pl-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono text-left"
                 dir="ltr"
               />
@@ -114,6 +121,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
             </label>
             <div className="relative">
               <input
+                aria-label="رمز عبور"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -124,9 +132,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
               />
               <Lock className="w-4 h-4 absolute right-3 top-3 text-slate-400" />
             </div>
-            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
-              رمز پیش‌فرض تمام کاربران مرجع: <code className="font-mono text-sky-600 dark:text-sky-400">snappfood123</code>
-            </p>
           </div>
 
           <button
@@ -159,14 +164,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                 onClick={() => handleQuickSelect(u.username)}
                 className={`text-right p-2 rounded-xl text-[11px] border transition-all flex items-center gap-2 ${
                   username === u.username
-                    ? 'border-sky-500 bg-sky-50/70 dark:bg-sky-950/50 text-sky-900 dark:text-sky-200 font-bold'
-                    : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300'
+                    ? "border-sky-500 bg-sky-50/70 dark:bg-sky-950/50 text-sky-900 dark:text-sky-200 font-bold"
+                    : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300"
                 }`}
               >
                 <span className={`w-2 h-2 rounded-full ${u.color} shrink-0`} />
                 <div className="truncate">
                   <div className="font-semibold truncate">{u.label}</div>
-                  <div className="text-[9px] text-slate-400 truncate">{u.roleLabel}</div>
+                  <div className="text-[9px] text-slate-400 truncate">
+                    {u.roleLabel}
+                  </div>
                 </div>
               </button>
             ))}

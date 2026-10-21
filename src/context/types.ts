@@ -10,11 +10,8 @@ import {
   User,
   RubricSection,
   ProblemItem,
-} from '../types/index.ts';
-import {
-  SEED_CONTROLLERS,
-  SEED_TEAM_LEADS,
-} from '../data/seedData.ts';
+} from "../types/index.ts";
+import { SEED_CONTROLLERS, SEED_TEAM_LEADS } from "../data/seedData.ts";
 
 export interface AppContextType {
   role: UserRole;
@@ -28,7 +25,7 @@ export interface AppContextType {
   setCurrentManagerDept: (dept: DepartmentType) => void;
   currentControllerId: string;
   setCurrentControllerId: (id: string) => void;
-  theme: 'light' | 'dark';
+  theme: "light" | "dark";
   toggleTheme: () => void;
   activeTab: string;
   setActiveTab: (tab: string) => void;
@@ -44,8 +41,21 @@ export interface AppContextType {
   agents: Agent[];
   faults: Fault[];
   teams: Team[];
-  controllers: { id: string; name: string; display_name: string; username?: string; role?: string; target?: number }[];
-  teamLeads: { id: string; name: string; username?: string; team?: string; department?: string }[];
+  controllers: {
+    id: string;
+    name: string;
+    display_name: string;
+    username?: string;
+    role?: string;
+    target?: number;
+  }[];
+  teamLeads: {
+    id: string;
+    name: string;
+    username?: string;
+    team?: string;
+    department?: string;
+  }[];
   auditLogs: AuditLog[];
   settings: PortalSettings;
   problems: ProblemItem[];
@@ -58,9 +68,11 @@ export interface AppContextType {
   supportFormId: string;
   salesFormId: string;
 
-  addAssessment: (assessment: Omit<Assessment, 'id' | 'created_at'>) => Assessment;
+  addAssessment: (
+    assessment: Omit<Assessment, "id" | "created_at">,
+  ) => Promise<Assessment>;
   updateAssessment: (id: string, updates: Partial<Assessment>) => Promise<void>;
-  deleteAssessment: (id: string) => Promise<void>;
+  deleteAssessment: (id: string, revision?: number) => Promise<void>;
   restoreAssessment: (id: string) => Promise<void>;
 
   // Team Lead review
@@ -71,35 +83,48 @@ export interface AppContextType {
     assessmentId: string,
     criterionId: string,
     criterionTitle: string,
-    agentComment: string
+    agentComment: string,
   ) => Promise<void>;
   resolveDispute: (
     assessmentId: string,
-    status: 'resolved' | 'rejected' | 'in_review',
+    status: "accepted" | "rejected" | "in_review",
     controllerComment: string,
-    revisedScore?: number
+    revisedScores?: Record<string, number>,
+    expected?: { revision?: number; disputeId?: string },
   ) => Promise<void>;
 
   // Backup & Import
   resetToSeedData: () => Promise<void>;
   exportDataToJson: () => string;
   importDataFromJson: (jsonStr: string) => boolean;
-  importAgentsFromCsv: (csvText: string, dryRun: boolean) => Promise<{ success: boolean; count: number; errors: string[] }>;
+  importAgentsFromCsv: (
+    csvText: string,
+    dryRun: boolean,
+  ) => Promise<{ success: boolean; count: number; errors: string[] }>;
 
   // Settings & Rubric editing
-  updateRubricItemWeight: (formType: DepartmentType, itemId: string, newWeight: number) => Promise<void>;
-  updateFullRubric: (formType: DepartmentType, sections: RubricSection[]) => Promise<{ success: boolean; error?: string }>;
+  updateRubricItemWeight: (
+    formType: DepartmentType,
+    itemId: string,
+    newWeight: number,
+  ) => Promise<void>;
+  updateFullRubric: (
+    formType: DepartmentType,
+    sections: RubricSection[],
+  ) => Promise<{ success: boolean; error?: string }>;
   updateSettings: (newSettings: Partial<PortalSettings>) => Promise<void>;
 
   // Roster / Fault management
-  addAgent: (agent: Omit<Agent, 'id'>) => Promise<void>;
+  addAgent: (agent: Omit<Agent, "id">) => Promise<void>;
   updateAgent: (id: string, updates: Partial<Agent>) => Promise<void>;
-  addFault: (fault: Omit<Fault, 'id'>) => Promise<void>;
+  addFault: (fault: Omit<Fault, "id">) => Promise<void>;
   updateFault: (id: string, updates: Partial<Fault>) => Promise<void>;
   deleteFault: (id: string) => Promise<void>;
 
   // Problems Tracker
-  addProblem: (problem: Omit<ProblemItem, 'id' | 'created_at'>) => Promise<void>;
+  addProblem: (
+    problem: Omit<ProblemItem, "id" | "created_at">,
+  ) => Promise<void>;
   updateProblem: (id: string, updates: Partial<ProblemItem>) => Promise<void>;
   deleteProblem: (id: string) => Promise<void>;
 
@@ -111,4 +136,4 @@ export interface AppContextType {
   logout: () => void;
 }
 
-export const THEME_STORAGE_KEY = 'snappfood_qa_theme_v2';
+export const THEME_STORAGE_KEY = "snappfood_qa_theme_v2";

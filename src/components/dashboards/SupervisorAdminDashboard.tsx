@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { UsersTeamsTab } from "./supervisorAdmin/UsersTeamsTab.tsx";
+import React, { useState } from "react";
 import {
   Users,
   Settings,
@@ -7,12 +8,12 @@ import {
   UserPlus,
   Upload,
   Plus,
-} from 'lucide-react';
-import { useApp } from '../../context/AppContext.tsx';
-import { AgentRosterTab } from './supervisorAdmin/AgentRosterTab.tsx';
-import { RubricEditorTab } from './supervisorAdmin/RubricEditorTab.tsx';
-import { FaultsManagementTab } from './supervisorAdmin/FaultsManagementTab.tsx';
-import { PortalSettingsTab } from './supervisorAdmin/PortalSettingsTab.tsx';
+} from "lucide-react";
+import { useApp } from "../../context/AppContext.tsx";
+import { AgentRosterTab } from "./supervisorAdmin/AgentRosterTab.tsx";
+import { RubricEditorTab } from "./supervisorAdmin/RubricEditorTab.tsx";
+import { FaultsManagementTab } from "./supervisorAdmin/FaultsManagementTab.tsx";
+import { PortalSettingsTab } from "./supervisorAdmin/PortalSettingsTab.tsx";
 
 export const SupervisorAdminDashboard: React.FC = () => {
   const {
@@ -36,7 +37,9 @@ export const SupervisorAdminDashboard: React.FC = () => {
     importAgentsFromCsv,
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'roster' | 'rubric' | 'faults' | 'settings'>('roster');
+  const [activeTab, setActiveTab] = useState<
+    "users" | "roster" | "rubric" | "faults" | "settings"
+  >("roster");
 
   // Modal triggers
   const [showAddAgentModal, setShowAddAgentModal] = useState(false);
@@ -45,6 +48,13 @@ export const SupervisorAdminDashboard: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      <button
+        className="px-4 py-2 bg-sky-600 text-white rounded-xl"
+        onClick={() => setActiveTab("users")}
+      >
+        مدیریت کاربران و تیم‌ها
+      </button>
+      {activeTab === "users" && <UsersTeamsTab />}
       {/* 1. Header Banner */}
       <div className="bg-white dark:bg-slate-800/90 rounded-2xl p-6 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -57,13 +67,14 @@ export const SupervisorAdminDashboard: React.FC = () => {
             </span>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            مدیریت کامل رستر All Source، ماتریس خطاهای فرآیندی، جدول کسر نمره سکوت و ویرایشگر نسخه‌بندی رابریک‌ها
+            مدیریت کامل رستر All Source، ماتریس خطاهای فرآیندی، جدول کسر نمره
+            سکوت و ویرایشگر نسخه‌بندی رابریک‌ها
           </p>
         </div>
 
         {/* Action Buttons depending on active tab */}
         <div className="flex flex-wrap items-center gap-2">
-          {activeTab === 'roster' && (
+          {activeTab === "roster" && (
             <>
               <button
                 type="button"
@@ -84,7 +95,7 @@ export const SupervisorAdminDashboard: React.FC = () => {
             </>
           )}
 
-          {activeTab === 'faults' && (
+          {activeTab === "faults" && (
             <button
               type="button"
               onClick={() => setShowFaultModal(true)}
@@ -101,11 +112,11 @@ export const SupervisorAdminDashboard: React.FC = () => {
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 pb-2 overflow-x-auto text-xs font-bold">
         <button
           type="button"
-          onClick={() => setActiveTab('roster')}
+          onClick={() => setActiveTab("roster")}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-xl transition whitespace-nowrap ${
-            activeTab === 'roster'
-              ? 'bg-sky-600 text-white shadow-xs font-bold'
-              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100'
+            activeTab === "roster"
+              ? "bg-sky-600 text-white shadow-xs font-bold"
+              : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100"
           }`}
         >
           <Users className="w-4 h-4" />
@@ -114,11 +125,11 @@ export const SupervisorAdminDashboard: React.FC = () => {
 
         <button
           type="button"
-          onClick={() => setActiveTab('rubric')}
+          onClick={() => setActiveTab("rubric")}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-xl transition whitespace-nowrap ${
-            activeTab === 'rubric'
-              ? 'bg-sky-600 text-white shadow-xs font-bold'
-              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100'
+            activeTab === "rubric"
+              ? "bg-sky-600 text-white shadow-xs font-bold"
+              : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100"
           }`}
         >
           <FileSpreadsheet className="w-4 h-4" />
@@ -127,11 +138,11 @@ export const SupervisorAdminDashboard: React.FC = () => {
 
         <button
           type="button"
-          onClick={() => setActiveTab('faults')}
+          onClick={() => setActiveTab("faults")}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-xl transition whitespace-nowrap ${
-            activeTab === 'faults'
-              ? 'bg-sky-600 text-white shadow-xs font-bold'
-              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100'
+            activeTab === "faults"
+              ? "bg-sky-600 text-white shadow-xs font-bold"
+              : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100"
           }`}
         >
           <ShieldAlert className="w-4 h-4" />
@@ -140,11 +151,11 @@ export const SupervisorAdminDashboard: React.FC = () => {
 
         <button
           type="button"
-          onClick={() => setActiveTab('settings')}
+          onClick={() => setActiveTab("settings")}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-xl transition whitespace-nowrap ${
-            activeTab === 'settings'
-              ? 'bg-sky-600 text-white shadow-xs font-bold'
-              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100'
+            activeTab === "settings"
+              ? "bg-sky-600 text-white shadow-xs font-bold"
+              : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100"
           }`}
         >
           <Settings className="w-4 h-4" />
@@ -153,7 +164,7 @@ export const SupervisorAdminDashboard: React.FC = () => {
       </div>
 
       {/* Sub-Tab 1: Agent Roster */}
-      {activeTab === 'roster' && (
+      {activeTab === "roster" && (
         <AgentRosterTab
           agents={agents}
           teams={teams}
@@ -170,7 +181,7 @@ export const SupervisorAdminDashboard: React.FC = () => {
       )}
 
       {/* Sub-Tab 2: Rubric Editor */}
-      {activeTab === 'rubric' && (
+      {activeTab === "rubric" && (
         <RubricEditorTab
           supportRubric={supportRubric}
           salesRubric={salesRubric}
@@ -181,7 +192,7 @@ export const SupervisorAdminDashboard: React.FC = () => {
       )}
 
       {/* Sub-Tab 3: Faults Management */}
-      {activeTab === 'faults' && (
+      {activeTab === "faults" && (
         <FaultsManagementTab
           faults={faults}
           addFault={addFault}
@@ -193,7 +204,7 @@ export const SupervisorAdminDashboard: React.FC = () => {
       )}
 
       {/* Sub-Tab 4: Settings */}
-      {activeTab === 'settings' && (
+      {activeTab === "settings" && (
         <PortalSettingsTab
           settings={settings}
           updateSettings={updateSettings}

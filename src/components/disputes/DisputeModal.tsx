@@ -1,14 +1,18 @@
-import React, { useState, useMemo } from 'react';
-import { Assessment, RubricSection } from '../../types/index.ts';
-import { toPersianDigits } from '../../utils/persian.ts';
-import { AlertCircle, X, CheckCircle2, ShieldAlert, Award } from 'lucide-react';
-import { useApp } from '../../context/AppContext.tsx';
+import React, { useState, useMemo } from "react";
+import { Assessment, RubricSection } from "../../types/index.ts";
+import { toPersianDigits } from "../../utils/persian.ts";
+import { AlertCircle, X, CheckCircle2, ShieldAlert, Award } from "lucide-react";
+import { useApp } from "../../context/AppContext.tsx";
 
 interface DisputeModalProps {
   assessment: Assessment;
   initialCriterionId?: string;
-  onClose: () => void;
-  onSubmit?: (comment: string, criterionId?: string, criterionTitle?: string) => void;
+  onClose: () => void | Promise<void>;
+  onSubmit?: (
+    comment: string,
+    criterionId?: string,
+    criterionTitle?: string,
+  ) => void | Promise<void>;
 }
 
 export const DisputeModal: React.FC<DisputeModalProps> = ({
@@ -19,11 +23,10 @@ export const DisputeModal: React.FC<DisputeModalProps> = ({
 }) => {
   const { supportRubric, salesRubric, submitDispute } = useApp();
 
-  const rubric: RubricSection[] =
-    assessment.form_type === 'support' ? supportRubric : salesRubric;
+  const rubric: RubricSection[] = assessment.rubric || [];
 
   const scoreMap =
-    assessment.form_type === 'support'
+    assessment.form_type === "support"
       ? assessment.support_scores || {}
       : assessment.sales_scores || {};
 
@@ -35,9 +38,7 @@ export const DisputeModal: React.FC<DisputeModalProps> = ({
       section: string;
       isDeducted?: boolean;
       lost?: number;
-    }> = [
-      { id: 'general', title: 'کل ارزیابی و نتیجه کلی نمره', section: 'عمومی' },
-    ];
+    }> = [];
 
     rubric.forEach((sec) => {
       sec.criteria.forEach((crit) => {
@@ -50,13 +51,16 @@ export const DisputeModal: React.FC<DisputeModalProps> = ({
 
         // Add item level for pinpoint precision
         crit.items.forEach((item) => {
-          const awarded = scoreMap[item.id] !== undefined ? scoreMap[item.id] : item.maxPoints;
+          const awarded =
+            scoreMap[item.id] !== undefined
+              ? scoreMap[item.id]
+              : item.maxPoints;
           const isDeducted = awarded < item.maxPoints;
           const lost = item.maxPoints - awarded;
 
           list.push({
             id: item.id,
-            title: `• ${crit.title}: ${item.title}${isDeducted ? ` (-${toPersianDigits(lost)} امتیاز)` : ''}`,
+            title: `• ${crit.title}: ${item.title}${isDeducted ? ` (-${toPersianDigits(lost)} امتیاز)` : ""}`,
             section: sec.title,
             isDeducted,
             lost,
@@ -70,32 +74,44 @@ export const DisputeModal: React.FC<DisputeModalProps> = ({
 
   // Determine initial selection
   const defaultSelected = useMemo(() => {
-    if (initialCriterionId && criteriaList.some((c) => c.id === initialCriterionId)) {
+    if (
+      initialCriterionId &&
+      criteriaList.some((c) => c.id === initialCriterionId)
+    ) {
       return initialCriterionId;
     }
     // Default to the first deducted item if exists, otherwise 'general'
     const firstDeducted = criteriaList.find((c) => c.isDeducted);
-    return firstDeducted ? firstDeducted.id : 'general';
+    return firstDeducted ? firstDeducted.id : criteriaList[0]?.id || "";
   }, [initialCriterionId, criteriaList]);
 
   const [selectedCritId, setSelectedCritId] = useState<string>(defaultSelected);
-  const [comment, setComment] = useState('');
+  const [comment, setComment] = useState("");
 
   const selectedCrit = criteriaList.find((c) => c.id === selectedCritId);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!comment.trim()) return;
+  const handleSubmit = async (e: React.FormEvent) => {
+    try {
+      e.preventDefault();
+      if (!comment.trim()) return;
 
-    const critTitle = selectedCrit?.title || 'کل ارزیابی';
+      const critTitle = selectedCrit?.title || "کل ارزیابی";
 
-    if (onSubmit) {
-      onSubmit(comment.trim(), selectedCritId, critTitle);
-    } else {
-      submitDispute(assessment.id, selectedCritId, critTitle, comment.trim());
+      if (onSubmit) {
+        await onSubmit(comment.trim(), selectedCritId, critTitle);
+      } else {
+        await submitDispute(
+          assessment.id,
+          selectedCritId,
+          critTitle,
+          comment.trim(),
+        );
+      }
+
+      onClose();
+    } catch {
+      /* error shown by shared banner; keep input */
     }
-
-    onClose();
   };
 
   return (
@@ -129,11 +145,13 @@ export const DisputeModal: React.FC<DisputeModalProps> = ({
         <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 text-xs space-y-1.5 border border-slate-100 dark:border-slate-800">
           <div className="flex items-center justify-between text-slate-700 dark:text-slate-300">
             <span>
-              شناسه ارزیابی:{' '}
-              <strong className="font-mono text-slate-900 dark:text-white">{assessment.id}</strong>
+              شناسه ارزیابی:{" "}
+              <strong className="font-mono text-slate-900 dark:text-white">
+                {assessment.id}
+              </strong>
             </span>
             <span>
-              نمره ثبت‌شده:{' '}
+              نمره ثبت‌شده:{" "}
               <strong className="font-mono text-sky-600 dark:text-sky-400 font-bold">
                 {toPersianDigits(assessment.total_score)} / ۱۰۰
               </strong>
@@ -141,7 +159,10 @@ export const DisputeModal: React.FC<DisputeModalProps> = ({
           </div>
           <div className="text-slate-500 text-[11px] flex items-center justify-between">
             <span>تاریخ بررسی: {toPersianDigits(assessment.check_date)}</span>
-            <span>وندور: {assessment.vendor_title || assessment.vendor_id || 'نامشخص'}</span>
+            <span>
+              وندور:{" "}
+              {assessment.vendor_title || assessment.vendor_id || "نامشخص"}
+            </span>
           </div>
         </div>
 
@@ -166,13 +187,14 @@ export const DisputeModal: React.FC<DisputeModalProps> = ({
             >
               {criteriaList.map((crit) => (
                 <option key={crit.id} value={crit.id}>
-                  {crit.isDeducted ? '⚠️ ' : ''}
+                  {crit.isDeducted ? "⚠️ " : ""}
                   {crit.title}
                 </option>
               ))}
             </select>
             <p className="text-[10px] text-slate-400 mt-1">
-              نکته: مواردی که علامت ⚠️ دارند، مواردی هستند که در این ارزیابی از شما کسر نمره شده‌اند.
+              نکته: مواردی که علامت ⚠️ دارند، مواردی هستند که در این ارزیابی از
+              شما کسر نمره شده‌اند.
             </p>
           </div>
 
