@@ -5,6 +5,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useMemo,
 } from "react";
 import { UserRole, DepartmentType, User } from "../types/index.ts";
 import { AppContextType } from "./types.ts";
@@ -224,6 +225,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     setLoading: data.setLoading,
   });
 
+  const activeAssessments = useMemo(
+    () => data.assessments.filter((a) => !a.deleted_at),
+    [data.assessments],
+  );
+
   return (
     <AppContext.Provider
       value={{
@@ -243,10 +249,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         toggleTheme,
         activeTab,
         setActiveTab,
+        navigationCounts: data.navigationCounts,
         loading: data.loading,
         error: data.error,
         refreshData: () => data.refreshData(handleUnauthorized),
-        assessments: data.assessments.filter((a) => !a.deleted_at),
+        assessments: activeAssessments,
         allAssessments: data.assessments,
         agents: data.agents,
         faults: data.faults,

@@ -3,8 +3,10 @@ export async function api<T = any>(
   method = "GET",
   body?: any,
   headers: Record<string, string> = {},
+  options: { signal?: AbortSignal } = {},
 ): Promise<T> {
   const res = await fetch(path, {
+    ...options,
     method,
     headers: {
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),

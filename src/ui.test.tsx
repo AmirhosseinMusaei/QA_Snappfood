@@ -124,3 +124,98 @@ test("API helper rejects HTTP errors and signals session expiry", async () => {
     (globalThis as any).window = savedWindow;
   }
 });
+
+test("restored manager dashboard retains the original quality matrix and fault cards", async () => {
+  const { ManagerDashboard } =
+    await import("./components/dashboards/ManagerDashboard.tsx");
+  const html = render(<ManagerDashboard />, {
+    ...empty,
+    currentManagerDept: "sales",
+    setCurrentManagerDept: () => {},
+  });
+  assert.ok(html.includes("High / Low Quality Matrix"));
+  assert.ok(html.includes("Fault Categories"));
+  assert.ok(html.includes("Faults Matrix"));
+  assert.ok(html.includes("bg-emerald-50"));
+});
+test("restored history retains filters, actions and assessment table", async () => {
+  const { AuditsHistory } = await import("./components/AuditsHistory.tsx");
+  const html = render(<AuditsHistory />);
+  assert.ok(html.includes("Assessments List"));
+  assert.ok(html.includes("همه نتایج ارزیابی"));
+  assert.ok(html.includes("<table"));
+});
+test("absent months are excluded from rolling averages, including real zero scores", async () => {
+  const { meanPresent } = await import("./context/useDashboardData.ts");
+  assert.equal(meanPresent([null, 100, 0]), 50);
+  assert.equal(meanPresent([null, undefined]), null);
+});
+test("CSV exports quote delimiters and neutralize spreadsheet formulas", async () => {
+  const { csvCell } = await import("./utils/downloadTable.ts");
+  assert.equal(csvCell('a,"b"'), '"a,""b"""');
+  assert.equal(csvCell("=1+1"), '"\'=1+1"');
+});
+test("Tehran inclusive report dates exclude the following local day", async () => {
+  const { tehranDateRange } = await import("./utils/persian.ts");
+  assert.deepEqual(tehranDateRange("1405/07/01", "1405/07/01"), {
+    gte: new Date("2026-09-22T20:30:00Z"),
+    lt: new Date("2026-09-23T20:30:00Z"),
+  });
+  assert.throws(() => tehranDateRange("1405/07/02", "1405/07/01"));
+  assert.throws(() => tehranDateRange("1405/12/30"));
+});
+test("Codespaces origin is allowed exactly in development and never enabled implicitly in production", async () => {
+  const { validateCsrfOrigin } = await import("./server/auth/middleware.ts");
+  const names = [
+    "NODE_ENV",
+    "APP_URL",
+    "CODESPACE_NAME",
+    "GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN",
+    "PORT",
+  ];
+  const saved = Object.fromEntries(names.map((n) => [n, process.env[n]]));
+  try {
+    Object.assign(process.env, {
+      NODE_ENV: "development",
+      APP_URL: "http://localhost:3000",
+      CODESPACE_NAME: "qa-demo",
+      GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN: "app.github.dev",
+      PORT: "3000",
+    });
+    const check = (origin: string) => {
+      let status = 200,
+        next = false;
+      const res: any = {
+        status(n: number) {
+          status = n;
+          return this;
+        },
+        json() {},
+      };
+      validateCsrfOrigin(
+        {
+          method: "POST",
+          path: "/auth/login",
+          headers: { origin },
+          cookies: {},
+          signedCookies: {},
+        } as any,
+        res,
+        () => {
+          next = true;
+        },
+      );
+      return { status, next };
+    };
+    assert.equal(check("https://qa-demo-3000.app.github.dev").next, true);
+    assert.equal(check("https://evil-3000.app.github.dev").status, 403);
+    assert.equal(check("http://localhost:3000.attacker.invalid").status, 403);
+    process.env.NODE_ENV = "production";
+    assert.equal(check("https://qa-demo-3000.app.github.dev").status, 403);
+  } finally {
+    for (const name of names) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
+  }
+});

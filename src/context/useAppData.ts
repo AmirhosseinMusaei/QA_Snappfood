@@ -24,6 +24,10 @@ export function useAppData() {
   const [faults, setFaults] = useState<Fault[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [settings, setSettings] = useState<PortalSettings>(DEFAULT_SETTINGS);
+  const [navigationCounts, setNavigationCounts] = useState({
+    needToCheck: 0,
+    pendingDisputes: 0,
+  });
   const [problems, setProblems] = useState<ProblemItem[]>([]);
   const [controllers, setControllers] = useState<
     {
@@ -61,6 +65,7 @@ export function useAppData() {
     setFaults([]);
     setAuditLogs([]);
     setProblems([]);
+    setNavigationCounts({ needToCheck: 0, pendingDisputes: 0 });
     setControllers([]);
     setTeamLeads([]);
   }, []);
@@ -68,7 +73,15 @@ export function useAppData() {
   const refreshAuditLogs = useCallback(async () => {
     const expected = epoch.current;
     try {
-      const res = await fetch("/api/audit-logs");
+      const [res, counts] = await Promise.all([
+        fetch("/api/audit-logs"),
+        fetch("/api/navigation-counts"),
+      ]);
+      if (counts.ok) {
+        const value = await counts.json();
+        if (expected === epoch.current && value.success)
+          setNavigationCounts(value.data);
+      }
       if (res.ok) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) {
@@ -97,6 +110,7 @@ export function useAppData() {
           problemsRes,
           auditLogsRes,
           staffRes,
+          countsRes,
         ] = await Promise.all([
           fetch("/api/assessments?page=1&limit=20"),
           fetch("/api/agents"),
@@ -107,6 +121,7 @@ export function useAppData() {
           fetch("/api/problems"),
           fetch("/api/audit-logs"),
           fetch("/api/staff"),
+          fetch("/api/navigation-counts"),
         ]);
 
         if (requestEpoch !== epoch.current) return;
@@ -131,12 +146,14 @@ export function useAppData() {
           problemsRes,
           auditLogsRes,
           staffRes,
+          countsRes,
         ];
         const payloads = await Promise.all(
           responses.map((r) => (r.ok ? r.json() : Promise.resolve(null))),
         );
         if (requestEpoch !== epoch.current) return;
-        const [a, g, t, f, forms, config, p, logs, staff] = payloads;
+        const [a, g, t, f, forms, config, p, logs, staff, counts] = payloads;
+        if (counts?.success) setNavigationCounts(counts.data);
         if (a?.success) setAssessments(a.data);
         if (g?.success) setAgents(g.data);
         if (t?.success) setTeams(t.data);
@@ -172,6 +189,7 @@ export function useAppData() {
   );
 
   return {
+    navigationCounts,
     loading,
     setLoading,
     error,

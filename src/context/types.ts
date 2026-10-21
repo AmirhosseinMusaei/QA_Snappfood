@@ -30,6 +30,8 @@ export interface AppContextType {
   activeTab: string;
   setActiveTab: (tab: string) => void;
 
+  navigationCounts: { needToCheck: number; pendingDisputes: number };
+
   // Real backend loading & error states
   loading: boolean;
   error: string | null;

@@ -1,6 +1,7 @@
 /**
  * Utility for aggregating historical assessment data into weekly and monthly team performance metrics.
  */
+import { calculateAgentMonthlyScoreDetailed } from "./scoring.ts";
 import type { Assessment, Agent, DepartmentType } from "../types/index.ts";
 import {
   toEnglishDigits,
@@ -220,7 +221,25 @@ export function calculatePerformanceTrend(
   const data: TrendDataPoint[] = sortedBuckets.map((b) => {
     const volume = b.scores.length;
     const sum = b.scores.reduce((acc, s) => acc + s, 0);
-    const avgScore = volume > 0 ? Math.round((sum / volume) * 10) / 10 : 0;
+    const monthAudits = filtered.filter((a) => {
+      const j = parseJalaliDate(a.check_date);
+      return j?.year === b.year && j.month === b.month;
+    });
+    const perAgent = [...new Set(monthAudits.map((a) => a.agent_id))]
+      .map((id) => {
+        const list = monthAudits.filter((a) => a.agent_id === id);
+        return calculateAgentMonthlyScoreDetailed(list, list[0].form_type)
+          .finalMonthlyScore;
+      })
+      .filter((n): n is number => n !== null);
+    const avgScore =
+      granularity === "monthly" && perAgent.length
+        ? Math.round(
+            (perAgent.reduce((n, v) => n + v, 0) / perAgent.length) * 10,
+          ) / 10
+        : volume > 0
+          ? Math.round((sum / volume) * 10) / 10
+          : 0;
     const minScore = volume > 0 ? Math.min(...b.scores) : 0;
     const maxScore = volume > 0 ? Math.max(...b.scores) : 0;
 
