@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
-const sqlite = process.env.TEST_DATABASE_URL || "file:./test.db";
+const sqlite =
+  process.env.TEST_DATABASE_URL ||
+  `file:./test-${process.pid}-${Date.now()}.db`;
 if (!/^file:\.\/test(?:-[a-z0-9-]+)?\.db$/i.test(sqlite))
   throw new Error(
     "Tests require an explicitly isolated test*.db SQLite database.",

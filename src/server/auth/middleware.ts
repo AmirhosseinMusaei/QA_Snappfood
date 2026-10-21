@@ -90,7 +90,18 @@ export function validateCsrfOrigin(
     }
     try {
       const source = new URL(origin || referer!);
-      if (source.origin !== new URL(expected).origin)
+      const allowed = new Set([new URL(expected).origin]);
+      // Codespaces provides these trusted process variables; never trust a request-supplied forwarded host.
+      if (
+        process.env.NODE_ENV !== "production" &&
+        process.env.CODESPACE_NAME &&
+        process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN
+      ) {
+        allowed.add(
+          `https://${process.env.CODESPACE_NAME}-${process.env.PORT || "3000"}.${process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN}`,
+        );
+      }
+      if (!allowed.has(source.origin))
         return res
           .status(403)
           .json({ success: false, message: "منبع درخواست مجاز نیست" });

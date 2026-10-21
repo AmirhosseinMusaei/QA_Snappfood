@@ -1,183 +1,553 @@
-import React, { useEffect, useState } from "react";
-import { useApp } from "../../context/AppContext.tsx";
-import { api } from "../../utils/api.ts";
+import { useServerPage } from "../../context/useServerPage.ts";
+import { DataState, PageControls } from "../shared/DataState.tsx";
 import { ScoreCorrectionEditor } from "../ScoreCorrectionEditor.tsx";
+import React, { useState, useMemo } from "react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  ExternalLink,
+  ChevronRight,
+  ShieldAlert,
+  Search,
+  Filter,
+  Volume2,
+} from "lucide-react";
+import { useApp } from "../../context/AppContext.tsx";
+import { Assessment, Dispute } from "../../types/index.ts";
+import { toPersianDigits, formatScoreBadge } from "../../utils/persian.ts";
 import { AuditDetailModal } from "../AuditDetailModal.tsx";
-import { toPersianDigits, formatJalaliDate } from "../../utils/persian.ts";
-import type { Assessment } from "../../types/index.ts";
-export const DisputesQueue = () => {
-  const { resolveDispute, role, currentUser, assessments } = useApp();
-  const [rows, setRows] = useState<Assessment[]>([]),
-    [status, setStatus] = useState("open"),
-    [page, setPage] = useState(1),
-    [pages, setPages] = useState(1),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
-    [selected, setSelected] = useState<Assessment | null>(null),
-    [editing, setEditing] = useState<Assessment | null>(null),
-    [scores, setScores] = useState<Record<string, number>>({}),
-    [comment, setComment] = useState(""),
-    [reload, setReload] = useState(0);
-  useEffect(() => {
-    let live = true;
-    api(`/api/disputes?status=${status}&page=${page}`)
-      .then((r) => {
-        if (live) {
-          setRows(r.data);
-          setPages(r.total_pages);
-        }
-      })
-      .catch((e) => {
-        if (live) setError(e.message);
-      });
-    return () => {
-      live = false;
-    };
-  }, [status, page, reload, assessments]);
-  const decide = async (
-    a: Assessment,
-    state: "accepted" | "rejected" | "in_review",
-  ) => {
+import { AudioWaveformPlayer } from "../AudioWaveformPlayer.tsx";
+
+export const DisputesQueue: React.FC = () => {
+  const {
+    assessments: changes,
+    agents,
+    resolveDispute,
+    role,
+    currentControllerId,
+    currentUser,
+  } = useApp();
+
+  const [filterStatus, setFilterStatus] = useState<
+    "open" | "in_review" | "accepted" | "rejected" | "all"
+  >("open");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedAudit, setSelectedAudit] = useState<Assessment | null>(null);
+
+  // Active resolving state
+  const [resolvingDisputeId, setResolvingDisputeId] = useState<string | null>(
+    null,
+  );
+  const [resolutionComment, setResolutionComment] = useState("");
+  const [revisedScores, setRevisedScores] = useState<Record<string, number>>(
+    {},
+  );
+  const [busy, setBusy] = useState(false);
+  const [page, setPage] = useState(1);
+  const query = new URLSearchParams({
+    status: filterStatus,
+    search: searchQuery,
+  }).toString();
+  React.useEffect(() => setPage(1), [query]);
+  const resource = useServerPage<Assessment>(
+    "/api/disputes",
+    query,
+    page,
+    25,
+    changes,
+  );
+  const assessments = resource.rows;
+
+  // All assessments that have a dispute
+  const disputedAudits = useMemo(() => {
+    return assessments.filter((a) => a.dispute !== undefined);
+  }, [assessments]);
+
+  const filteredAudits = disputedAudits;
+  const pendingCount = resource.counts?.open ?? 0;
+  const inReviewCount = resource.counts?.in_review ?? 0;
+  const resolvedCount = resource.counts?.accepted ?? 0;
+  const rejectedCount = resource.counts?.rejected ?? 0;
+
+  const handleSetInReview = async (audit: Assessment) => {
+    if (busy) return;
     setBusy(true);
-    setError("");
     try {
       await resolveDispute(
-        a.id,
-        state,
-        comment.trim() || "در حال بررسی",
-        state === "accepted" ? scores : undefined,
-        { revision: a.revision, disputeId: a.dispute?.id },
+        audit.id,
+        "in_review",
+        "در حال بازشنوایی و بررسی مجدد توسط کنترلر",
+        undefined,
+        { revision: audit.revision, disputeId: audit.dispute!.id },
       );
-      setEditing(null);
-      setReload((n) => n + 1);
-    } catch (e: any) {
-      setError(e.message);
+    } catch {
     } finally {
       setBusy(false);
     }
   };
+  const handleStartResolve = (audit: Assessment) => {
+    setResolvingDisputeId(audit.dispute!.id);
+    setRevisedScores({
+      ...((audit.form_type === "sales"
+        ? audit.sales_scores
+        : audit.support_scores) || {}),
+    });
+    setResolutionComment("");
+  };
+  const handleConfirmResolve = async (
+    audit: Assessment,
+    status: "accepted" | "rejected",
+  ) => {
+    if (!resolutionComment.trim()) {
+      alert("لطفاً توضیحات و نتیجه بازشنوایی را وارد کنید.");
+      return;
+    }
+    if (busy) return;
+    setBusy(true);
+    try {
+      await resolveDispute(
+        audit.id,
+        status,
+        resolutionComment.trim(),
+        status === "accepted" ? revisedScores : undefined,
+        { revision: audit.revision, disputeId: audit.dispute!.id },
+      );
+      setResolvingDisputeId(null);
+      setResolutionComment("");
+    } catch {
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="max-w-7xl mx-auto p-4 space-y-4">
-      <h1 className="font-bold text-xl">کارتابل اعتراضات کارشناسان</h1>
-      <select
-        aria-label="وضعیت اعتراض"
-        value={status}
-        onChange={(e) => {
-          setStatus(e.target.value);
-          setPage(1);
-        }}
-        className="border p-2 rounded bg-transparent"
-      >
-        {[
-          ["open", "باز"],
-          ["in_review", "در حال بررسی"],
-          ["accepted", "پذیرفته‌شده"],
-          ["rejected", "ردشده"],
-          ["all", "همه"],
-        ].map(([v, t]) => (
-          <option key={v} value={v}>
-            {t}
-          </option>
-        ))}
-      </select>
-      {error && (
-        <p role="alert" className="text-rose-600">
-          {error}
-        </p>
-      )}
-      {rows.map((a) => (
-        <article
-          key={a.dispute!.id}
-          className="bg-white dark:bg-slate-800 rounded-2xl border dark:border-slate-700 p-5 space-y-3"
-        >
-          <h2 className="font-bold">
-            {a.dispute?.agent_name} — {a.dispute?.criterion_title}
-          </h2>
-          <p>{a.dispute?.agent_comment}</p>
-          <p className="text-xs text-slate-500">
-            {formatJalaliDate(a.dispute!.created_at)} — نمره{" "}
-            {toPersianDigits(a.total_score)}
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      <DataState loading={resource.loading} error={resource.error} />
+      {/* 1. Header Banner */}
+      <div className="bg-white dark:bg-slate-800/90 rounded-2xl p-6 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white">
+              کارتابل اعتراضات کارشناسان (Disputes Queue)
+            </h1>
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300 font-semibold">
+              گردش کار بازشنوایی کنترلر کیفیت
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            بررسی اعتراضات ثبت‌شده توسط کارشناسان حداکثر ظرف ۳ روز کاری و اصلاح
+            نمرات پس از بازشنوایی دقیق صوت تماس
           </p>
-          <button onClick={() => setSelected(a)}>جزئیات ارزیابی</button>
-          {["qa_controller", "qa_supervisor"].includes(role) &&
-            (role === "qa_supervisor" || a.controller_id === currentUser.id) &&
-            ["open", "in_review"].includes(a.dispute!.status) && (
-              <button
-                className="mr-4 text-sky-600"
-                onClick={() => {
-                  setEditing(a);
-                  setScores({});
-                  setComment("");
-                }}
-              >
-                رسیدگی
-              </button>
-            )}
-        </article>
-      ))}
-      {!rows.length && <p>اعتراضی در این وضعیت وجود ندارد.</p>}
-      <div className="flex gap-4">
-        <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-          قبلی
-        </button>
-        <span>
-          {toPersianDigits(page)} / {toPersianDigits(pages)}
-        </span>
-        <button disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
-          بعدی
-        </button>
-      </div>
-      {selected && (
-        <AuditDetailModal
-          assessment={selected}
-          onClose={() => setSelected(null)}
-        />
-      )}
-      {editing && (
-        <div className="fixed inset-0 z-50 bg-black/60 p-4 grid place-items-center">
-          <div className="p-6 bg-white dark:bg-slate-800 rounded-2xl max-w-2xl w-full space-y-4">
-            <h2 className="font-bold">اصلاح معیار مورد اعتراض</h2>
-            <ScoreCorrectionEditor
-              assessment={editing}
-              criterionId={editing.dispute?.criterion_id}
-              scores={scores}
-              onChange={setScores}
-            />
-            <textarea
-              aria-label="دلیل تصمیم"
-              className="w-full border p-2 rounded bg-transparent"
-              placeholder="دلیل پذیرش یا رد"
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-            />
-            {error && <p role="alert">{error}</p>}
-            <div className="flex flex-wrap gap-4">
-              <button
-                disabled={
-                  busy || !comment.trim() || !Object.keys(scores).length
-                }
-                onClick={() => decide(editing, "accepted")}
-              >
-                پذیرش و محاسبه مجدد
-              </button>
-              <button
-                disabled={busy || !comment.trim()}
-                onClick={() => decide(editing, "rejected")}
-              >
-                رد اعتراض
-              </button>
-              <button
-                disabled={busy}
-                onClick={() => decide(editing, "in_review")}
-              >
-                در حال بررسی
-              </button>
-              <button disabled={busy} onClick={() => setEditing(null)}>
-                انصراف
-              </button>
-            </div>
+        </div>
+
+        {/* Quick Stats Badges */}
+        <div className="flex items-center gap-2">
+          <div className="px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-xs">
+            <span className="text-amber-800 dark:text-amber-300 font-bold">
+              {toPersianDigits(pendingCount)}
+            </span>
+            <span className="text-amber-600 dark:text-amber-400 mr-1">
+              در انتظار بررسی
+            </span>
+          </div>
+          <div className="px-3 py-1.5 rounded-xl bg-sky-50 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-800 text-xs">
+            <span className="text-sky-800 dark:text-sky-300 font-bold">
+              {toPersianDigits(inReviewCount)}
+            </span>
+            <span className="text-sky-600 dark:text-sky-400 mr-1">
+              در حال بررسی
+            </span>
+          </div>
+          <div className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs">
+            <span className="text-emerald-800 dark:text-emerald-300 font-bold">
+              {toPersianDigits(resolvedCount)}
+            </span>
+            <span className="text-emerald-600 dark:text-emerald-400 mr-1">
+              پذیرفته‌شده
+            </span>
+          </div>
+          <div className="px-3 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-xs">
+            <span className="text-rose-800 dark:text-rose-300 font-bold">
+              {toPersianDigits(rejectedCount)}
+            </span>
+            <span className="text-rose-600 dark:text-rose-400 mr-1">ردشده</span>
           </div>
         </div>
+      </div>
+
+      {/* 2. Filter & Search Controls */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+        {/* Status Pills */}
+        <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold w-full sm:w-auto overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => setFilterStatus("open")}
+            className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg transition ${
+              filterStatus === "open"
+                ? "bg-amber-500 text-white shadow-xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+            }`}
+          >
+            در انتظار رسیدگی ({toPersianDigits(pendingCount)})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterStatus("in_review")}
+            className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg transition ${
+              filterStatus === "in_review"
+                ? "bg-sky-600 text-white shadow-xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+            }`}
+          >
+            در حال بررسی ({toPersianDigits(inReviewCount)})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterStatus("accepted")}
+            className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg transition ${
+              filterStatus === "accepted"
+                ? "bg-emerald-600 text-white shadow-xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+            }`}
+          >
+            تایید و اصلاح‌شده ({toPersianDigits(resolvedCount)})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterStatus("rejected")}
+            className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg transition ${
+              filterStatus === "rejected"
+                ? "bg-rose-600 text-white shadow-xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+            }`}
+          >
+            رد اعتراض ({toPersianDigits(rejectedCount)})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterStatus("all")}
+            className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg transition ${
+              filterStatus === "all"
+                ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+            }`}
+          >
+            همه
+          </button>
+        </div>
+
+        {/* Search */}
+        <div className="relative w-full sm:w-72">
+          <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="جستجوی نام کارشناس، کد سورس، معیار..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-3 pr-9 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400"
+          />
+        </div>
+      </div>
+
+      <PageControls
+        page={page}
+        total={resource.total}
+        limit={25}
+        onChange={setPage}
+      />
+      {/* 3. Disputes List */}
+      <div className="space-y-4">
+        {filteredAudits.length > 0 ? (
+          filteredAudits.map((audit) => {
+            const dispute = audit.dispute!;
+            const agent = agents.find((a) => a.id === audit.agent_id);
+            const isResolving = resolvingDisputeId === dispute.id;
+            const badge = formatScoreBadge(audit.total_score);
+
+            return (
+              <div
+                key={dispute.id}
+                className="bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm space-y-4"
+              >
+                {/* Dispute Header Row */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-700/60 pb-3">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`text-xs px-2.5 py-1 rounded-full font-bold ${
+                        dispute.status === "open"
+                          ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                          : dispute.status === "in_review"
+                            ? "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300"
+                            : dispute.status === "accepted"
+                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                              : "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300"
+                      }`}
+                    >
+                      {dispute.status === "open"
+                        ? "در انتظار بررسی"
+                        : dispute.status === "in_review"
+                          ? "در حال بررسی (بازشنوایی)"
+                          : dispute.status === "accepted"
+                            ? "پذیرفته و اصلاح نمره"
+                            : "رد اعتراض"}
+                    </span>
+
+                    <span className="font-bold text-sm text-slate-900 dark:text-white">
+                      {agent?.name}
+                    </span>
+                    <span className="text-xs text-slate-400 font-mono">
+                      (کد {toPersianDigits(agent?.source_id)})
+                    </span>
+                    <span className="text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium">
+                      تیم {agent?.team}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3 text-xs text-slate-400">
+                    <span className="font-mono">
+                      ثبت اعتراض: {toPersianDigits(dispute.created_at)}
+                    </span>
+                    <span>·</span>
+                    <span>کنترلر: {audit.controller_id}</span>
+                  </div>
+                </div>
+
+                {/* Audit Context & Dispute Reason */}
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                  {/* Left Column: Disputed Criterion & Agent Reason */}
+                  <div className="md:col-span-8 space-y-3">
+                    <div className="p-3.5 rounded-xl bg-sky-50/50 dark:bg-sky-950/20 border border-sky-100 dark:border-sky-900/40 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-sky-900 dark:text-sky-200">
+                          معیار مورد اعتراض:{" "}
+                          {dispute.criterion_title || "کل ارزیابی"}
+                        </span>
+                        <span className="text-[11px] text-slate-400">
+                          ارزیابی شناسه: {audit.id}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-normal bg-white dark:bg-slate-800/80 p-2.5 rounded-lg border border-sky-100 dark:border-sky-800/40">
+                        <strong className="block text-slate-900 dark:text-white mb-1">
+                          متن اعتراض کارشناس:
+                        </strong>
+                        {dispute.agent_comment}
+                      </p>
+                    </div>
+
+                    {/* In-Review Status Box */}
+                    {dispute.status === "in_review" && (
+                      <div className="p-3.5 rounded-xl border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/30 text-xs space-y-1 text-sky-900 dark:text-sky-200">
+                        <div className="font-bold flex items-center gap-1.5">
+                          <Clock className="w-4 h-4 text-sky-600 animate-pulse" />
+                          <span>
+                            وضعیت: در حال بازشنوایی و بررسی توسط کنترلر (
+                            {dispute.controller_id || audit.controller_id})
+                          </span>
+                        </div>
+                        <p className="text-slate-600 dark:text-slate-300">
+                          {dispute.controller_comment ||
+                            "کنترلر کیفیت در حال استماع مجدد صوت تماس و بررسی معیارهای مورد اختلاف است."}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Resolution Result if already decided */}
+                    {(dispute.status === "accepted" ||
+                      dispute.status === "rejected") && (
+                      <div
+                        className={`p-3.5 rounded-xl border text-xs space-y-1 ${
+                          dispute.status === "accepted"
+                            ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200"
+                            : "bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800 text-rose-900 dark:text-rose-200"
+                        }`}
+                      >
+                        <div className="font-bold">
+                          نتیجه رسیدگی:{" "}
+                          {dispute.status === "accepted"
+                            ? "اعتراض پذیرفته شد"
+                            : "اعتراض رد شد"}
+                          {dispute.revised_score !== undefined && (
+                            <span className="font-mono mr-2">
+                              (نمره نهایی:{" "}
+                              {toPersianDigits(dispute.revised_score)} از ۱۰۰)
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-slate-600 dark:text-slate-300">
+                          توضیحات کنترلر ({dispute.controller_id}):{" "}
+                          {dispute.controller_comment}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right Column: Audio & Score Snapshot */}
+                  <div className="md:col-span-4 flex flex-col justify-between bg-slate-50 dark:bg-slate-900/40 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500">
+                        نمره ثبت‌شده:
+                      </span>
+                      <span
+                        className={`font-mono font-bold text-sm px-2.5 py-0.5 rounded ${badge.badgeClass}`}
+                      >
+                        {toPersianDigits(audit.total_score)} / ۱۰۰
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-slate-500 space-y-1">
+                      <div>
+                        وندور: {audit.vendor_title || `کد ${audit.vendor_id}`}
+                      </div>
+                      <div>
+                        شماره:{" "}
+                        {audit.ticket_number || audit.phone_number || "ندارد"}
+                      </div>
+                    </div>
+
+                    {/* Audio inspection button */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAudit(audit)}
+                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 transition shadow-2xs"
+                    >
+                      <Volume2 className="w-3.5 h-3.5 text-sky-600" />
+                      <span>بازشنوایی صوت و مشاهده جزئیات</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Dispute Resolution Actions for Controller / Supervisor */}
+                {(dispute.status === "open" ||
+                  dispute.status === "in_review") && (
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-700/60">
+                    {!(
+                      role === "qa_supervisor" ||
+                      (role === "qa_controller" &&
+                        audit.controller_id === currentUser.id)
+                    ) ? (
+                      <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2">
+                        <ShieldAlert className="w-4 h-4 shrink-0 text-amber-600" />
+                        <span>
+                          تنها کنترلر ارزیابی‌کننده ({audit.controller_id}) یا
+                          سوپروایزر کیفیت مجاز به رسیدگی به این اعتراض هستند.
+                        </span>
+                      </div>
+                    ) : !isResolving ? (
+                      <div className="flex items-center justify-end gap-2">
+                        {dispute.status === "open" && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => handleSetInReview(audit)}
+                            className="px-3.5 py-2 rounded-xl bg-sky-50 dark:bg-sky-950/50 hover:bg-sky-100 border border-sky-300 dark:border-sky-800 text-sky-700 dark:text-sky-300 text-xs font-bold transition flex items-center gap-1.5"
+                          >
+                            <Clock className="w-3.5 h-3.5 text-sky-600" />
+                            <span>شروع بررسی (در حال بررسی)</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleStartResolve(audit)}
+                          className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-xs transition"
+                        >
+                          {dispute.status === "in_review"
+                            ? "ثبت نتیجه نهایی بازشنوایی"
+                            : "تعیین تکلیف و ثبت نتیجه"}
+                        </button>
+                      </div>
+                    ) : (
+                      /* Expanded Resolution Box */
+                      <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-sky-200 dark:border-sky-800 space-y-4">
+                        <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                          <span>ثبت تصمیم کنترلر برای اعتراض {audit.id}</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 block mb-1">
+                              نمره اصلاح‌شده پس از بازشنوایی:
+                            </label>
+                            <ScoreCorrectionEditor
+                              assessment={audit}
+                              scores={revisedScores}
+                              onChange={setRevisedScores}
+                              criterionId={dispute.criterion_id}
+                            />
+                            <span className="text-[10px] text-slate-400 mt-0.5 block">
+                              نمره قبلی: {toPersianDigits(audit.total_score)}
+                            </span>
+                          </div>
+
+                          <div className="sm:col-span-2">
+                            <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 block mb-1">
+                              توضیحات و دلیل تصمیم کنترلر:
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="دلیل قبول یا رد اعتراض (مثلاً: صوت مجدداً استماع شد، توضیحات کارشناس صحیح بود...)"
+                              value={resolutionComment}
+                              onChange={(e) =>
+                                setResolutionComment(e.target.value)
+                              }
+                              className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white placeholder-slate-400"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-2">
+                          <button
+                            type="button"
+                            onClick={() => setResolvingDisputeId(null)}
+                            className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 text-xs hover:bg-slate-100 font-medium"
+                          >
+                            انصراف
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() =>
+                              handleConfirmResolve(audit, "rejected")
+                            }
+                            className="px-3 py-1.5 rounded-lg border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs font-bold"
+                          >
+                            رد اعتراض (حفظ نمره قبلی)
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() =>
+                              handleConfirmResolve(audit, "accepted")
+                            }
+                            className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs"
+                          >
+                            پذیرش اعتراض و ذخیره نمره جدید
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        ) : (
+          <div className="py-16 text-center bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-400 text-xs space-y-2">
+            <CheckCircle2 className="w-8 h-8 text-slate-300 mx-auto" />
+            <p>هیچ اعتراضی در این بخش یافت نشد.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Audit Detail Modal */}
+      {selectedAudit && (
+        <AuditDetailModal
+          assessment={selectedAudit}
+          onClose={() => setSelectedAudit(null)}
+        />
       )}
     </div>
   );

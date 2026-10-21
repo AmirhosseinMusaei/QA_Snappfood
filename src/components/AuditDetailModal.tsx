@@ -53,8 +53,17 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
   } = useApp();
 
   // Keep live sync with context updates
+  const live = assessments.find((a) => a.id === initialAssessment.id);
+  const latest =
+    live && (live.revision ?? 0) >= (initialAssessment.revision ?? 0)
+      ? live
+      : initialAssessment;
+  // An archived dispute must not silently become a different dispute on the same assessment.
   const assessment =
-    assessments.find((a) => a.id === initialAssessment.id) || initialAssessment;
+    initialAssessment.dispute?.id &&
+    latest.dispute?.id !== initialAssessment.dispute.id
+      ? { ...latest, dispute: initialAssessment.dispute }
+      : latest;
 
   const [history, setHistory] = useState<any[]>([]),
     [historyPage, setHistoryPage] = useState(1),

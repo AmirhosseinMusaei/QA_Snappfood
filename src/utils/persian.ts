@@ -165,6 +165,46 @@ export function parseJalaliOrGregorianDate(input: any): Date | null {
   return Number.isFinite(parsed.getTime()) ? parsed : null;
 }
 
+/** Inclusive calendar dates, bounded by local midnight in Tehran (including historical DST). */
+export function tehranDateRange(start?: string, end?: string) {
+  const boundary = (value: string, next = false) => {
+    if (!/^\d{4}[/-]\d{2}[/-]\d{2}$/.test(toEnglishDigits(value)))
+      throw new Error("تاریخ نامعتبر است");
+    const date = parseJalaliOrGregorianDate(value);
+    if (!date) throw new Error("تاریخ نامعتبر است");
+    const target = date.getTime() + (next ? 86400000 : 0);
+    let instant = target;
+    for (let i = 0; i < 4; i++) {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Tehran",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+      }).formatToParts(new Date(instant));
+      const val = (key: string) =>
+        +(parts.find((p) => p.type === key)?.value || 0);
+      const projected = Date.UTC(
+        val("year"),
+        val("month") - 1,
+        val("day"),
+        val("hour"),
+        val("minute"),
+        val("second"),
+      );
+      instant -= projected - target;
+    }
+    return new Date(instant);
+  };
+  const gte = start ? boundary(start) : undefined,
+    lt = end ? boundary(end, true) : undefined;
+  if (gte && lt && gte >= lt) throw new Error("بازه تاریخ نامعتبر است");
+  return { ...(gte ? { gte } : {}), ...(lt ? { lt } : {}) };
+}
+
 export function jalaliMonthRange(year: number, month: number) {
   if (
     !Number.isInteger(year) ||

@@ -1152,3 +1152,94 @@ describe("Administration, migration boundaries and safe metadata", () => {
       }
   });
 });
+
+describe("Restored interface data contracts", () => {
+  test("monthly dashboard detail is complete within the same authorized period and scope", async () => {
+    const result = await request(
+      "mahya",
+      "/api/monthly-scores?year=1405&month=7&include_assessments=true",
+    );
+    assert.equal(result.status, 200);
+    const report = result.data.data;
+    assert.equal(report.assessments.length, report.assessmentCount);
+    assert.ok(
+      report.assessments.every(
+        (a: any) =>
+          a.agent_id === users.mahya.agent_id &&
+          !a.deleted_at &&
+          a.check_date_year === 1405 &&
+          a.check_date_month_num === 7,
+      ),
+    );
+    const plain = await request(
+      "mahya",
+      "/api/monthly-scores?year=1405&month=7",
+    );
+    assert.deepEqual(report.rows, plain.data.data.rows);
+    assert.equal(plain.data.data.assessments, undefined);
+  });
+  test("inclusive report date filtering and exports use the same Tehran interval", async () => {
+    const a = await fixture({ check_date: "2026-10-21T21:00:00Z" });
+    const query = "start_date=1405%2F07%2F30&end_date=1405%2F07%2F30&limit=100";
+    const list = await request("supervisor", "/api/assessments?" + query);
+    assert.equal(list.status, 200);
+    assert.ok(list.data.data.some((r: any) => r.id === a.id));
+    const next = await request(
+      "supervisor",
+      "/api/assessments?start_date=1405%2F08%2F01&end_date=1405%2F08%2F01&limit=100",
+    );
+    assert.ok(!next.data.data.some((r: any) => r.id === a.id));
+    assert.equal(
+      (await request("supervisor", "/api/assessments?start_date=invalid"))
+        .status,
+      400,
+    );
+    const csv = await request(
+      "supervisor",
+      "/api/export/assessments.csv?" + query,
+    );
+    assert.equal(csv.status, 200);
+    assert.ok(csv.buffer.toString().includes(a.id));
+  });
+  test("table formatting export is authenticated, validates shape and creates safe XLSX", async () => {
+    const payload = {
+      title: "گزارش",
+      headers: ["کارشناس", "نمره"],
+      rows: [['=HYPERLINK("x")', 87.5]],
+    };
+    assert.equal(
+      (await request("", "/api/export/report-table.xlsx", "POST", payload))
+        .status,
+      401,
+    );
+    assert.equal(
+      (await request("mahya", "/api/export/report-table.xlsx", "POST", payload))
+        .status,
+      403,
+    );
+    assert.equal(
+      (
+        await request("admin", "/api/export/report-table.xlsx", "POST", {
+          ...payload,
+          rows: [[1]],
+        })
+      ).status,
+      400,
+    );
+    const r = await request(
+      "admin",
+      "/api/export/report-table.xlsx",
+      "POST",
+      payload,
+    );
+    assert.equal(r.status, 200);
+    const ExcelJS = (await import("exceljs")).default;
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(r.buffer as any);
+    assert.equal(workbook.worksheets[0].getCell("B3").value, 87.5);
+    assert.equal(
+      workbook.worksheets[0].getCell("A3").value,
+      '\'=HYPERLINK("x")',
+    );
+  });
+});

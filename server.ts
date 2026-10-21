@@ -20,6 +20,7 @@ import {
 import {
   dateToJalali,
   parseJalaliOrGregorianDate,
+  tehranDateRange,
   formatJalaliDate,
   getCurrentJalaliYear,
   toEnglishDigits,
@@ -1471,7 +1472,12 @@ function buildAssessmentFilterWhere(
   }
 
   if (result && typeof result === "string" && result !== "all") {
-    where.result = result;
+    if (result === "بررسی شده")
+      where.AND = [
+        ...(where.AND || []),
+        { OR: [{ result }, { team_lead_reviewed: true }] },
+      ];
+    else where.result = result;
   }
 
   if (
@@ -1557,6 +1563,19 @@ function buildAssessmentFilterWhere(
     }
   }
 
+  if (query.start_date || query.end_date) {
+    try {
+      const interval = tehranDateRange(
+        query.start_date ? String(query.start_date) : undefined,
+        query.end_date ? String(query.end_date) : undefined,
+      );
+      if (where.check_date)
+        where.AND = [...(where.AND || []), { check_date: interval }];
+      else where.check_date = interval;
+    } catch {
+      throw new ApiError(400, "بازه تاریخ نامعتبر است");
+    }
+  }
   // Search filter
   if (search && typeof search === "string" && search.trim()) {
     const q = search.trim();
@@ -2240,6 +2259,22 @@ app.post(
     }
   },
 );
+app.get("/api/navigation-counts", authenticate, async (req, res) => {
+  try {
+    const scope = getAssessmentScope(req.user!, { deleted_at: null });
+    const [needToCheck, pendingDisputes] = await Promise.all([
+      prisma.assessment.count({
+        where: {
+          AND: [scope, { result: "Need to check", team_lead_reviewed: false }],
+        },
+      }),
+      prisma.dispute.count({ where: { status: "open", assessment: scope } }),
+    ]);
+    res.json({ success: true, data: { needToCheck, pendingDisputes } });
+  } catch (e) {
+    apiFailure(res, e);
+  }
+});
 app.get("/api/disputes", authenticate, async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query.page) || 1),
@@ -2252,6 +2287,22 @@ app.get("/api/disputes", authenticate, async (req, res) => {
             .parse(req.query.status)
         : undefined;
     const where: any = { assessment: scope, ...(status ? { status } : {}) };
+    if (typeof req.query.search === "string" && req.query.search.trim()) {
+      const text = req.query.search.trim();
+      where.OR = [
+        { agent_comment: { contains: text } },
+        { criterion_title: { contains: text } },
+        { assessment: { vendor_title: { contains: text } } },
+        { assessment: { id: { contains: text } } },
+        { assessment: { agent: { name: { contains: text } } } },
+        { assessment: { agent: { source_id: { contains: text } } } },
+      ];
+    }
+    const counts = await prisma.dispute.groupBy({
+      by: ["status"],
+      where: { assessment: scope },
+      _count: true,
+    });
     const [total, disputes] = await Promise.all([
       prisma.dispute.count({ where }),
       prisma.dispute.findMany({
@@ -2267,6 +2318,7 @@ app.get("/api/disputes", authenticate, async (req, res) => {
     );
     res.json({
       success: true,
+      counts: Object.fromEntries(counts.map((row) => [row.status, row._count])),
       total,
       page,
       total_pages: Math.ceil(total / limit) || 1,
@@ -3078,6 +3130,38 @@ app.get(
   },
 );
 
+// Format the already authorized visible report table; this endpoint writes no business data.
+app.post("/api/export/report-table.xlsx", authenticate, async (req, res) => {
+  try {
+    if (req.user!.role === "agent")
+      throw new ApiError(403, "دسترسی به گزارش مجاز نیست");
+    const cell = z.union([z.string().max(4000), z.number().finite()]);
+    const input = z
+      .object({
+        title: z.string().min(1).max(200),
+        headers: z.array(z.string().max(200)).min(1).max(40),
+        rows: z.array(z.array(cell).max(40)).max(10000),
+      })
+      .strict()
+      .parse(req.body);
+    if (input.rows.some((row) => row.length !== input.headers.length))
+      throw new ApiError(400, "ستون‌های گزارش یکسان نیستند");
+    const buffer = await writeWorkbook("گزارش", [
+      [input.title],
+      input.headers,
+      ...input.rows,
+    ]);
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader("Content-Disposition", 'attachment; filename="report.xlsx"');
+    res.send(buffer);
+  } catch (e) {
+    apiFailure(res, e);
+  }
+});
+
 // Excel (.xlsx) Export for Monthly Scores
 
 function selectedPeriod(query: any) {
@@ -3238,6 +3322,9 @@ async function monthlyReport(user: AuthUser, query: any) {
     rows,
     teams: groups("team_id"),
     departments: groups("department"),
+    ...(query.include_assessments === "true"
+      ? { assessments: assessments.map(formatAssessmentResponse) }
+      : {}),
     assessmentCount: assessments.length,
     backendGeneralCount: assessments.filter((a) => a.backend_general).length,
     fraudCount: assessments.filter((a) => a.is_fraud).length,
@@ -3540,14 +3627,12 @@ app.post(
         } catch (e: any) {
           errors.push({ row: index + 2, field: "row", message: e.message });
         }
-      const preview = valid
-        .slice(0, 15)
-        .map((v) => ({
-          ...v.data,
-          agent_name: v.agent_name,
-          check_date_jalali: formatJalaliDate(v.data.check_date),
-          already_imported: v.already,
-        }));
+      const preview = valid.slice(0, 15).map((v) => ({
+        ...v.data,
+        agent_name: v.agent_name,
+        check_date_jalali: formatJalaliDate(v.data.check_date),
+        already_imported: v.already,
+      }));
       if (dryRun)
         return res.json({
           success: true,
@@ -3604,12 +3689,10 @@ app.post(
       process.env.NODE_ENV === "production" ||
       process.env.ALLOW_DEMO_RESET !== "true"
     )
-      return res
-        .status(403)
-        .json({
-          success: false,
-          message: "بازنشانی فقط در محیط نمایشی صریح مجاز است",
-        });
+      return res.status(403).json({
+        success: false,
+        message: "بازنشانی فقط در محیط نمایشی صریح مجاز است",
+      });
     try {
       const user = req.user!;
 

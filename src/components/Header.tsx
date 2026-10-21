@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ShieldCheck,
   Moon,
@@ -65,6 +65,7 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({
 }) => {
   const {
     role,
+    navigationCounts,
     setRole,
     theme,
     toggleTheme,
@@ -82,24 +83,46 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({
 
   // Permit DEV_ROLE_SWITCH only in explicitly configured development
   const isDevRoleSwitch =
-    import.meta.env.DEV && import.meta.env.VITE_DEV_ROLE_SWITCH === "true";
+    import.meta.env?.DEV && import.meta.env?.VITE_DEV_ROLE_SWITCH === "true";
 
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const compactNavigation = role === "admin" || role === "qa_supervisor";
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const menuPanel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMobileMenuOpen(false);
+        menuButton.current?.focus();
+      }
+    };
+    const outside = (event: PointerEvent) => {
+      if (
+        !menuPanel.current?.contains(event.target as Node) &&
+        !menuButton.current?.contains(event.target as Node)
+      )
+        setMobileMenuOpen(false);
+    };
+    document.addEventListener("keydown", key);
+    document.addEventListener("pointerdown", outside);
+    return () => {
+      document.removeEventListener("keydown", key);
+      document.removeEventListener("pointerdown", outside);
+    };
+  }, [mobileMenuOpen]);
+  useEffect(() => setMobileMenuOpen(false), [role]);
 
-  // Count pending items for badges
-  const needToCheckCount = assessments.filter(
-    (a) => a.result === "Need to check" && !a.team_lead_reviewed,
-  ).length;
-  const pendingDisputesCount = assessments.filter(
-    (a) => a.dispute?.status === "open",
-  ).length;
+  const needToCheckCount = navigationCounts?.needToCheck ?? 0;
+  const pendingDisputesCount = navigationCounts?.pendingDisputes ?? 0;
 
   const currentAgent = agents.find((a) => a.id === currentAgentId) || agents[0];
 
   const handleTabClick = (tabKey: string) => {
     setActiveTab(tabKey);
     setMobileMenuOpen(false);
+    menuButton.current?.focus();
   };
 
   return (
@@ -125,7 +148,10 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({
           </div>
 
           {/* Desktop Navigation Links based on active role */}
-          <nav className="hidden lg:flex items-center gap-1 text-xs font-semibold">
+          <nav
+            aria-label="ناوبری اصلی"
+            className={`${compactNavigation ? "hidden" : "hidden xl:flex"} items-center gap-1 text-xs font-semibold`}
+          >
             {/* QA Controller / Supervisor / Admin: New Evaluation */}
             {(role === "qa_controller" || role === "qa_supervisor") && (
               <button
@@ -288,6 +314,24 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({
                 <span>لاگ ممیزی سیستم</span>
               </button>
             )}
+            {role !== "agent" && (
+              <button
+                type="button"
+                onClick={() => handleTabClick("reports")}
+                className="px-3 py-1.5 rounded-xl whitespace-nowrap hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                گزارش‌ها
+              </button>
+            )}
+            {["team_lead", "manager"].includes(role) && (
+              <button
+                type="button"
+                onClick={() => handleTabClick("problems")}
+                className="px-3 py-1.5 rounded-xl whitespace-nowrap hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                پیگیری مشکلات
+              </button>
+            )}
           </nav>
 
           {/* Right Action Cluster: Role Switcher & Utilities */}
@@ -446,7 +490,7 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({
               type="button"
               onClick={onOpenBackupModal}
               className="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-              title="پشتیبان‌گیری و بازنشانی داده‌های نمونه"
+              title="دریافت داده‌های قابل مشاهده"
             >
               <Database className="w-4 h-4" />
             </button>
@@ -469,7 +513,11 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({
             <button
               type="button"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              ref={menuButton}
+              aria-label="منوی ناوبری"
+              aria-expanded={mobileMenuOpen}
+              aria-controls="main-navigation-panel"
+              className={`${compactNavigation ? "" : "xl:hidden"} p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition`}
               title="منوی ناوبری"
             >
               {mobileMenuOpen ? (
@@ -484,7 +532,12 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({
 
       {/* Mobile Navigation Drawer */}
       {mobileMenuOpen && (
-        <div className="lg:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-2">
+        <div
+          ref={menuPanel}
+          id="main-navigation-panel"
+          aria-label="ناوبری اصلی"
+          className={`${compactNavigation ? "" : "xl:hidden"} border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-[calc(100dvh-4rem)] overflow-y-auto`}
+        >
           {(role === "qa_controller" || role === "qa_supervisor") && (
             <button
               type="button"
@@ -609,6 +662,35 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({
               }`}
             >
               تنظیمات و رستر
+            </button>
+          )}
+          {role !== "agent" && (
+            <button
+              type="button"
+              onClick={() => handleTabClick("reports")}
+              className="w-full text-right p-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              گزارش‌ها
+            </button>
+          )}
+          {["team_lead", "manager", "qa_supervisor", "admin"].includes(
+            role,
+          ) && (
+            <button
+              type="button"
+              onClick={() => handleTabClick("problems")}
+              className="w-full text-right p-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              پیگیری مشکلات
+            </button>
+          )}
+          {["qa_controller", "qa_supervisor", "admin"].includes(role) && (
+            <button
+              type="button"
+              onClick={() => handleTabClick("system_audit_log")}
+              className="w-full text-right p-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              تاریخچه تغییرات سیستم
             </button>
           )}
         </div>

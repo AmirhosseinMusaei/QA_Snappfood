@@ -89,23 +89,6 @@ const AppContent: React.FC = () => {
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors">
       <Header onOpenBackupModal={() => setShowBackupModal(true)} />
 
-      <nav className="flex flex-wrap gap-3 px-4 py-2 text-sm border-b dark:border-slate-700">
-        {role !== "agent" && (
-          <button onClick={() => setActiveTab("audits")}>
-            تاریخچه ارزیابی‌ها
-          </button>
-        )}
-        {role !== "agent" && (
-          <button onClick={() => setActiveTab("reports")}>
-            گزارش‌های ماهانه
-          </button>
-        )}
-        {["team_lead", "manager", "qa_supervisor", "admin"].includes(role) && (
-          <button onClick={() => setActiveTab("problems")}>
-            پیگیری مشکلات
-          </button>
-        )}
-      </nav>
       {error && (
         <div className="bg-rose-50 dark:bg-rose-950/60 border-b border-rose-200 dark:border-rose-800 p-2 text-center text-xs text-rose-700 dark:text-rose-300 flex items-center justify-center gap-2">
           <span>{error}</span>
