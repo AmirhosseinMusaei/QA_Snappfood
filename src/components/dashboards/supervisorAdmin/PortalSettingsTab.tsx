@@ -1,15 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import {
-  Save,
-  CheckCircle2,
-  Sliders,
-} from 'lucide-react';
-import { PortalSettings } from '../../../types/index.ts';
-import { toPersianDigits } from '../../../utils/persian.ts';
+import React, { useState, useEffect } from "react";
+import { Save, CheckCircle2, Sliders } from "lucide-react";
+import { PortalSettings } from "../../../types/index.ts";
+import { toPersianDigits } from "../../../utils/persian.ts";
 
 interface PortalSettingsTabProps {
   settings: PortalSettings;
-  updateSettings: (newSettings: Partial<PortalSettings>) => void;
+  updateSettings: (newSettings: Partial<PortalSettings>) => Promise<void>;
 }
 
 export const PortalSettingsTab: React.FC<PortalSettingsTabProps> = ({
@@ -23,11 +19,13 @@ export const PortalSettingsTab: React.FC<PortalSettingsTabProps> = ({
     setSettingsForm(settings);
   }, [settings]);
 
-  const handleSaveSettings = (e: React.FormEvent) => {
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateSettings(settingsForm);
-    setSettingsSaveToast(true);
-    setTimeout(() => setSettingsSaveToast(false), 3000);
+    try {
+      await updateSettings(settingsForm);
+      setSettingsSaveToast(true);
+      setTimeout(() => setSettingsSaveToast(false), 3000);
+    } catch {}
   };
 
   return (
@@ -35,13 +33,35 @@ export const PortalSettingsTab: React.FC<PortalSettingsTabProps> = ({
       onSubmit={handleSaveSettings}
       className="bg-white dark:bg-slate-800/90 rounded-2xl p-6 border border-slate-200 dark:border-slate-700 shadow-sm space-y-6 text-xs"
     >
+      <label className="block">
+        نتیجه‌های مجاز (هر خط یک گزینه)
+        <textarea
+          aria-label="گزینه‌های نتیجه"
+          className="block w-full border rounded p-3 mt-2 bg-transparent"
+          value={(
+            settingsForm.result_options || [
+              "No problem",
+              "Need to check",
+              "Coaching Required",
+              "بررسی شده",
+            ]
+          ).join("\n")}
+          onChange={(e) =>
+            setSettingsForm({
+              ...settingsForm,
+              result_options: e.target.value.split("\n"),
+            })
+          }
+        />
+      </label>
       <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-3">
         <div>
           <h3 className="font-bold text-sm text-slate-900 dark:text-white">
             پیکربندی قوانین نمره‌دهی، جریمه‌ها و آستانه‌های کیفی
           </h3>
           <p className="text-[11px] text-slate-400 mt-0.5">
-            تنظیم دقیق جدول کسر نمره سکوت/انضباط فروش، مهلت ثبت اعتراض و آستانه‌های تفکیک کیفیت
+            تنظیم دقیق جدول کسر نمره سکوت/انضباط فروش، مهلت ثبت اعتراض و
+            آستانه‌های تفکیک کیفیت
           </p>
         </div>
 
@@ -65,10 +85,14 @@ export const PortalSettingsTab: React.FC<PortalSettingsTabProps> = ({
       <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/30 space-y-3">
         <h4 className="font-bold text-xs text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
           <Sliders className="w-4 h-4 text-sky-600" />
-          <span>جدول نمره خطاهای انضباط مکالمه و سکوت فروش (Sales Mistakes Schedule - سقف ۳۰ امتیاز)</span>
+          <span>
+            جدول نمره خطاهای انضباط مکالمه و سکوت فروش (Sales Mistakes Schedule
+            - سقف ۳۰ امتیاز)
+          </span>
         </h4>
         <p className="text-[11px] text-slate-400">
-          بر اساس شیت فرمول فروش: ۰ خطا = ۳۰ نمره، ۱ خطا = ۲۵ نمره، ۲ خطا = ۲۰ نمره، ۳ خطا = ۱۵ نمره، ۴ خطا = ۱۰ نمره، ۵ خطا یا بیشتر = ۰ نمره
+          بر اساس شیت فرمول فروش: ۰ خطا = ۳۰ نمره، ۱ خطا = ۲۵ نمره، ۲ خطا = ۲۰
+          نمره، ۳ خطا = ۱۵ نمره، ۴ خطا = ۱۰ نمره، ۵ خطا یا بیشتر = ۰ نمره
         </p>
 
         <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
@@ -78,7 +102,9 @@ export const PortalSettingsTab: React.FC<PortalSettingsTabProps> = ({
               className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center space-y-1"
             >
               <span className="text-[11px] text-slate-400 block">
-                {count === 5 ? '۵ خطا و بیشتر' : `${toPersianDigits(count)} خطا`}
+                {count === 5
+                  ? "۵ خطا و بیشتر"
+                  : `${toPersianDigits(count)} خطا`}
               </span>
               <div className="flex items-center justify-center gap-1">
                 <input
@@ -146,7 +172,9 @@ export const PortalSettingsTab: React.FC<PortalSettingsTabProps> = ({
               }
               className="w-20 p-2 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-800 font-mono font-bold text-emerald-600"
             />
-            <span className="text-emerald-700 dark:text-emerald-400 font-semibold">امتیاز</span>
+            <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
+              امتیاز
+            </span>
           </div>
         </div>
 
@@ -168,7 +196,9 @@ export const PortalSettingsTab: React.FC<PortalSettingsTabProps> = ({
               }
               className="w-20 p-2 rounded-xl border border-rose-300 dark:border-rose-700 bg-white dark:bg-slate-800 font-mono font-bold text-rose-600"
             />
-            <span className="text-rose-700 dark:text-rose-400 font-semibold">امتیاز</span>
+            <span className="text-rose-700 dark:text-rose-400 font-semibold">
+              امتیاز
+            </span>
           </div>
         </div>
 
@@ -190,7 +220,9 @@ export const PortalSettingsTab: React.FC<PortalSettingsTabProps> = ({
               }
               className="w-24 p-2 rounded-xl border border-sky-300 dark:border-sky-700 bg-white dark:bg-slate-800 font-mono font-bold text-sky-700 dark:text-sky-300"
             />
-            <span className="text-sky-700 dark:text-sky-400 font-semibold">ارزیابی در ماه</span>
+            <span className="text-sky-700 dark:text-sky-400 font-semibold">
+              ارزیابی در ماه
+            </span>
           </div>
         </div>
 
@@ -212,7 +244,9 @@ export const PortalSettingsTab: React.FC<PortalSettingsTabProps> = ({
               }
               className="w-24 p-2 rounded-xl border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-800 font-mono font-bold text-indigo-700 dark:text-indigo-300"
             />
-            <span className="text-indigo-700 dark:text-indigo-400 font-semibold">بررسی در ماه</span>
+            <span className="text-indigo-700 dark:text-indigo-400 font-semibold">
+              بررسی در ماه
+            </span>
           </div>
         </div>
       </div>

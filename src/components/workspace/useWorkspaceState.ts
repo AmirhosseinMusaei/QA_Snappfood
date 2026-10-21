@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from 'react';
-import { useApp } from '../../context/AppContext.tsx';
+import { useState, useMemo, useEffect, useRef } from "react";
+import { useApp } from "../../context/AppContext.tsx";
 import {
   Assessment,
   DepartmentType,
@@ -7,7 +7,7 @@ import {
   AssessmentResult,
   SupportFaultCategory,
   SalesProject,
-} from '../../types/index.ts';
+} from "../../types/index.ts";
 import {
   getDefaultSupportScores,
   getDefaultSalesScores,
@@ -16,15 +16,15 @@ import {
   calculateSalesMistakeScore,
   validateScores,
   getAllRubricItems,
-} from '../../utils/scoring.ts';
-import {
-  getJalaliDateString,
-  formatScoreBadge,
-} from '../../utils/persian.ts';
+} from "../../utils/scoring.ts";
+import { getJalaliDateString, formatScoreBadge } from "../../utils/persian.ts";
 
-export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => void) {
+export function useWorkspaceState(
+  onAssessmentSubmitted?: (newId: string) => void,
+) {
   const {
     agents,
+    settings,
     faults,
     assessments,
     addAssessment,
@@ -38,68 +38,75 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
   } = useApp();
 
   // Selected agent state
-  const [selectedAgentId, setSelectedAgentId] = useState<string>(agents[0]?.id || '');
-  const [agentSearch, setAgentSearch] = useState<string>('');
-  const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState<boolean>(false);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>(
+    agents[0]?.id || "",
+  );
+  const [agentSearch, setAgentSearch] = useState<string>("");
+  const [isAgentDropdownOpen, setIsAgentDropdownOpen] =
+    useState<boolean>(false);
 
   const selectedAgent = useMemo(
     () => agents.find((a) => a.id === selectedAgentId) || agents[0],
-    [agents, selectedAgentId]
+    [agents, selectedAgentId],
   );
 
-  const formType: DepartmentType = selectedAgent?.department || 'sales';
+  const formType: DepartmentType = selectedAgent?.department || "sales";
 
   // Common Metadata Fields
-  const [sampleName, setSampleName] = useState<SampleType>('Random Sampling');
-  const [vendorId, setVendorId] = useState<string>('279168');
-  const [vendorTitle, setVendorTitle] = useState<string>('فست فود ایران فود');
+  const [sampleName, setSampleName] = useState<SampleType>("Random Sampling");
+  const [vendorId, setVendorId] = useState<string>("");
+  const [vendorTitle, setVendorTitle] = useState<string>("");
   const [checkDate, setCheckDate] = useState<string>(getJalaliDateString());
-  const [faultId, setFaultId] = useState<string>('');
+  const [faultId, setFaultId] = useState<string>("");
   const [backendGeneral, setBackendGeneral] = useState<boolean>(false);
   const [isFraud, setIsFraud] = useState<boolean>(false);
-  const [result, setResult] = useState<AssessmentResult>('No problem');
-  const [resultComment, setResultComment] = useState<string>('');
+  const [result, setResult] = useState<AssessmentResult>("No problem");
+  const [resultComment, setResultComment] = useState<string>("");
 
   // Support-Specific Fields
-  const [ticketNumber, setTicketNumber] = useState<string>('VTS-1450577');
-  const [voiceLink, setVoiceLink] = useState<string>(
-    'https://actions.google.com/sounds/v1/telephones/telephone_ring.ogg'
-  );
-  const [description, setDescription] = useState<string>('');
+  const [ticketNumber, setTicketNumber] = useState<string>("");
+  const [voiceLink, setVoiceLink] = useState<string>("");
+  const [description, setDescription] = useState<string>("");
   const [selectedFaultCategories, setSelectedFaultCategories] = useState<
     SupportFaultCategory[]
   >([]);
 
   // Sales-Specific Fields
-  const [phoneNumber, setPhoneNumber] = useState<string>('۰۹۳۳۶۱۵۰۰۴۶');
-  const [project, setProject] = useState<SalesProject>('Campaign');
-  const [discountOrCoupon, setDiscountOrCoupon] = useState<string>('DISC-22998961');
-  const [registrationDate, setRegistrationDate] = useState<string>(getJalaliDateString());
-  const [executionDate, setExecutionDate] = useState<string>(getJalaliDateString());
+  const [phoneNumber, setPhoneNumber] = useState<string>("");
+  const [project, setProject] = useState<SalesProject>("Campaign");
+  const [discountOrCoupon, setDiscountOrCoupon] = useState<string>("");
+  const [registrationDate, setRegistrationDate] = useState<string>(
+    getJalaliDateString(),
+  );
+  const [executionDate, setExecutionDate] = useState<string>(
+    getJalaliDateString(),
+  );
   const [mistakeCount, setMistakeCount] = useState<number>(0);
 
-  const activeRubric = formType === 'support' ? supportRubric : salesRubric;
-  const activeVersion = formType === 'support' ? supportFormVersion : salesFormVersion;
+  const activeRubric = formType === "support" ? supportRubric : salesRubric;
+  const activeVersion =
+    formType === "support" ? supportFormVersion : salesFormVersion;
   const activeFormId =
-    formType === 'support'
+    formType === "support"
       ? supportFormId || `form-support-v${supportFormVersion}`
       : salesFormId || `form-sales-v${salesFormVersion}`;
 
   // Rubric Scores (Pre-filled to full score as an initial UI state)
-  const [supportScores, setSupportScores] = useState<Record<string, number>>(() =>
-    getDefaultSupportScores(supportRubric)
+  const [supportScores, setSupportScores] = useState<Record<string, number>>(
+    () => getDefaultSupportScores(supportRubric),
   );
   const [salesScores, setSalesScores] = useState<Record<string, number>>(() =>
-    getDefaultSalesScores(salesRubric)
+    getDefaultSalesScores(salesRubric),
   );
 
   // Sync scores with active rubric if rubric or form type changes
   useEffect(() => {
-    if (formType === 'support') {
+    if (formType === "support") {
       setSupportScores((prev) => {
         const merged: Record<string, number> = {};
         getAllRubricItems(supportRubric).forEach((it) => {
-          merged[it.id] = prev[it.id] !== undefined ? prev[it.id] : it.maxPoints;
+          merged[it.id] =
+            prev[it.id] !== undefined ? prev[it.id] : it.maxPoints;
         });
         return merged;
       });
@@ -107,19 +114,20 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
       setSalesScores((prev) => {
         const merged: Record<string, number> = {};
         getAllRubricItems(salesRubric).forEach((it) => {
-          merged[it.id] = prev[it.id] !== undefined ? prev[it.id] : it.maxPoints;
+          merged[it.id] =
+            prev[it.id] !== undefined ? prev[it.id] : it.maxPoints;
         });
         return merged;
       });
     }
   }, [formType, supportRubric, salesRubric]);
 
-  const activeScores = formType === 'support' ? supportScores : salesScores;
+  const activeScores = formType === "support" ? supportScores : salesScores;
 
   // Real-time score validation
   const validation = useMemo(
     () => validateScores(activeRubric, activeScores),
-    [activeRubric, activeScores]
+    [activeRubric, activeScores],
   );
 
   const [submitToast, setSubmitToast] = useState<string | null>(null);
@@ -130,11 +138,12 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
 
   // Duplicate ticket check for the same agent
   const isDuplicateTicket = useMemo(() => {
-    if (!ticketNumber || formType !== 'support') return false;
+    if (!ticketNumber || formType !== "support") return false;
     return assessments.some(
       (a) =>
         a.agent_id === selectedAgent?.id &&
-        a.ticket_number?.trim().toLowerCase() === ticketNumber.trim().toLowerCase()
+        a.ticket_number?.trim().toLowerCase() ===
+          ticketNumber.trim().toLowerCase(),
     );
   }, [ticketNumber, selectedAgent?.id, assessments, formType]);
 
@@ -148,15 +157,25 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
           let s = 0;
           sec.criteria.forEach((crit) => {
             crit.items.forEach((it) => {
-              if (typeof supportScores[it.id] === 'number') s += supportScores[it.id];
+              if (typeof supportScores[it.id] === "number")
+                s += supportScores[it.id];
             });
           });
-          if (sec.id.includes('soft')) soft += s;
+          if (sec.id.includes("soft")) soft += s;
           else know += s;
         });
-        return { total: Math.min(100, soft + know), softSkill: soft, knowledge: know };
+        return {
+          total: Math.min(100, soft + know),
+          softSkill: soft,
+          knowledge: know,
+        };
       }
-      return calculateSupportTotal(supportScores, isFraud, isCriticalFault, supportRubric);
+      return calculateSupportTotal(
+        supportScores,
+        isFraud,
+        isCriticalFault,
+        supportRubric,
+      );
     } catch {
       return { total: 0, softSkill: 0, knowledge: 0 };
     }
@@ -171,13 +190,17 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
           let s = 0;
           sec.criteria.forEach((crit) => {
             crit.items.forEach((it) => {
-              if (typeof salesScores[it.id] === 'number') s += salesScores[it.id];
+              if (typeof salesScores[it.id] === "number")
+                s += salesScores[it.id];
             });
           });
-          if (sec.id.includes('soft')) soft += s;
+          if (sec.id.includes("soft")) soft += s;
           else scr += s;
         });
-        const mistakeScore = calculateSalesMistakeScore(mistakeCount);
+        const mistakeScore = calculateSalesMistakeScore(
+          mistakeCount,
+          settings.sales_mistake_deductions,
+        );
         return {
           total: Math.min(100, soft + scr + mistakeScore),
           softSkill: soft,
@@ -190,20 +213,31 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
         mistakeCount,
         isFraud,
         isCriticalFault,
-        salesRubric
+        salesRubric,
+        settings.sales_mistake_deductions,
       );
     } catch {
       return { total: 0, softSkill: 0, script: 0, mistakeScore: 0 };
     }
-  }, [salesScores, mistakeCount, isFraud, isCriticalFault, salesRubric]);
+  }, [
+    salesScores,
+    mistakeCount,
+    isFraud,
+    isCriticalFault,
+    salesRubric,
+    settings.sales_mistake_deductions,
+  ]);
 
   const totalScore =
-    formType === 'support' ? supportCalculation.total : salesCalculation.total;
-  const scoreBadge = formatScoreBadge(totalScore);
+    formType === "support" ? supportCalculation.total : salesCalculation.total;
+  const scoreBadge = formatScoreBadge(totalScore, {
+    high: settings.high_quality_threshold,
+    low: settings.low_quality_threshold,
+  });
 
   // Rubric Item Toggle and Step Handlers
   const handleToggleItem = (itemId: string, maxPoints: number) => {
-    if (formType === 'support') {
+    if (formType === "support") {
       setSupportScores((prev) => ({
         ...prev,
         [itemId]: prev[itemId] === maxPoints ? 0 : maxPoints,
@@ -216,9 +250,13 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
     }
   };
 
-  const handleSetItemScore = (itemId: string, maxPoints: number, valStr: string) => {
-    const val = valStr === '' ? (undefined as any) : Number(valStr);
-    if (formType === 'support') {
+  const handleSetItemScore = (
+    itemId: string,
+    maxPoints: number,
+    valStr: string,
+  ) => {
+    const val = valStr === "" ? (undefined as any) : Number(valStr);
+    if (formType === "support") {
       setSupportScores((prev) => ({
         ...prev,
         [itemId]: val,
@@ -232,7 +270,7 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
   };
 
   const handleStepItem = (itemId: string, maxPoints: number, delta: number) => {
-    if (formType === 'support') {
+    if (formType === "support") {
       setSupportScores((prev) => {
         const cur = prev[itemId] !== undefined ? prev[itemId] : maxPoints;
         const next = Math.max(0, Math.min(maxPoints, cur + delta));
@@ -249,7 +287,7 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
 
   // 1-Click Reset all items to full points
   const resetToFullScore = () => {
-    if (formType === 'support') {
+    if (formType === "support") {
       setSupportScores(getDefaultSupportScores(supportRubric));
     } else {
       setSalesScores(getDefaultSalesScores(salesRubric));
@@ -257,12 +295,12 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
     }
     setIsFraud(false);
     setBackendGeneral(false);
-    setFaultId('');
+    setFaultId("");
   };
 
   // Auto fill missing items with their maxPoints
   const handleFillMissingWithFull = () => {
-    if (formType === 'support') {
+    if (formType === "support") {
       setSupportScores((prev) => {
         const next = { ...prev };
         supportRubric.forEach((sec) =>
@@ -271,8 +309,8 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
               if (next[it.id] === undefined || next[it.id] === null) {
                 next[it.id] = it.maxPoints;
               }
-            })
-          )
+            }),
+          ),
         );
         return next;
       });
@@ -285,8 +323,8 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
               if (next[it.id] === undefined || next[it.id] === null) {
                 next[it.id] = it.maxPoints;
               }
-            })
-          )
+            }),
+          ),
         );
         return next;
       });
@@ -296,12 +334,14 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
   // Toggle fault category chip
   const toggleFaultCategory = (cat: SupportFaultCategory) => {
     setSelectedFaultCategories((prev) =>
-      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
+      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat],
     );
   };
 
+  const inFlight = useRef(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   // Submit assessment handler
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!validation.isValid) {
@@ -309,8 +349,15 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
       return;
     }
 
-    const newAssessmentData: Omit<Assessment, 'id' | 'created_at'> = {
-      agent_id: selectedAgent?.id || 'agent-3718',
+    if (!selectedAgent) {
+      alert("ابتدا یک کارشناس مجاز انتخاب کنید");
+      return;
+    }
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setIsSubmitting(true);
+    const newAssessmentData: Omit<Assessment, "id" | "created_at"> = {
+      agent_id: selectedAgent.id,
       controller_id: currentControllerId,
       form_id: activeFormId,
       form_type: formType,
@@ -327,28 +374,36 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
       total_score: totalScore,
 
       // Support specific
-      ticket_number: formType === 'support' ? ticketNumber : undefined,
-      voice_link: formType === 'support' ? voiceLink : undefined,
-      description: formType === 'support' ? description : undefined,
-      fault_categories: formType === 'support' ? selectedFaultCategories : undefined,
-      support_scores: formType === 'support' ? supportScores : undefined,
+      ticket_number: formType === "support" ? ticketNumber : undefined,
+      voice_link: formType === "support" ? voiceLink : undefined,
+      description: formType === "support" ? description : undefined,
+      fault_categories:
+        formType === "support" ? selectedFaultCategories : undefined,
+      support_scores: formType === "support" ? supportScores : undefined,
 
       // Sales specific
-      phone_number: formType === 'sales' ? phoneNumber : undefined,
-      project: formType === 'sales' ? project : undefined,
-      discount_or_coupon: formType === 'sales' ? discountOrCoupon : undefined,
-      registration_date: formType === 'sales' ? registrationDate : undefined,
-      execution_date: formType === 'sales' ? executionDate : undefined,
-      mistake_count: formType === 'sales' ? mistakeCount : undefined,
-      sales_scores: formType === 'sales' ? salesScores : undefined,
+      phone_number: formType === "sales" ? phoneNumber : undefined,
+      project: formType === "sales" ? project : undefined,
+      discount_or_coupon: formType === "sales" ? discountOrCoupon : undefined,
+      registration_date: formType === "sales" ? registrationDate : undefined,
+      execution_date: formType === "sales" ? executionDate : undefined,
+      mistake_count: formType === "sales" ? mistakeCount : undefined,
+      sales_scores: formType === "sales" ? salesScores : undefined,
     };
 
-    const created = addAssessment(newAssessmentData);
-    setSubmitToast(`ارزیابی با موفقیت ثبت شد (شناسه: ${created.id})`);
-    setTimeout(() => setSubmitToast(null), 4000);
+    try {
+      const created = await addAssessment(newAssessmentData);
+      setSubmitToast(`ارزیابی با موفقیت ثبت شد (شناسه: ${created.id})`);
+      setTimeout(() => setSubmitToast(null), 4000);
 
-    if (onAssessmentSubmitted) {
-      onAssessmentSubmitted(created.id);
+      if (onAssessmentSubmitted) {
+        onAssessmentSubmitted(created.id);
+      }
+    } catch {
+      /* Shared error banner retains the entered form. */
+    } finally {
+      inFlight.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -359,6 +414,7 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
 
   return {
     agents,
+    settings,
     faults,
     currentControllerId,
     supportRubric,
@@ -426,6 +482,7 @@ export function useWorkspaceState(onAssessmentSubmitted?: (newId: string) => voi
     resetToFullScore,
     handleFillMissingWithFull,
     handleSubmit,
+    isSubmitting,
     zoodfoodUrl,
   };
 }

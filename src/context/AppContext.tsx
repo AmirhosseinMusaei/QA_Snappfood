@@ -1,30 +1,36 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import {
-  UserRole,
-  DepartmentType,
-  User,
-} from '../types/index.ts';
-import { AppContextType } from './types.ts';
-import { useAppMutations } from './useAppMutations.ts';
-import { useAppData } from './useAppData.ts';
-import { useTheme } from './useTheme.ts';
+import { api } from "../utils/api.ts";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+} from "react";
+import { UserRole, DepartmentType, User } from "../types/index.ts";
+import { AppContextType } from "./types.ts";
+import { useAppMutations } from "./useAppMutations.ts";
+import { useAppData } from "./useAppData.ts";
+import { useTheme } from "./useTheme.ts";
 
 export type { AppContextType };
 
-const AppContext = createContext<AppContextType | null>(null);
+export const AppContext = createContext<AppContextType | null>(null);
 
-export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   const [authLoading, setAuthLoading] = useState<boolean>(true);
-  const [role, setRoleState] = useState<UserRole>('qa_controller');
+  const [role, setRoleState] = useState<UserRole>("qa_controller");
   const [activeUser, setActiveUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
 
-  const [currentAgentId, setCurrentAgentId] = useState<string>('');
-  const [currentTeamLeadId, setCurrentTeamLeadId] = useState<string>('');
-  const [currentManagerDept, setCurrentManagerDept] = useState<DepartmentType>('sales');
-  const [currentControllerId, setCurrentControllerId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<string>('workspace');
+  const [currentAgentId, setCurrentAgentId] = useState<string>("");
+  const [currentTeamLeadId, setCurrentTeamLeadId] = useState<string>("");
+  const [currentManagerDept, setCurrentManagerDept] =
+    useState<DepartmentType>("sales");
+  const [currentControllerId, setCurrentControllerId] = useState<string>("");
+  const [activeTab, setActiveTab] = useState<string>("workspace");
 
   // Theme hook
   const { theme, toggleTheme } = useTheme();
@@ -47,25 +53,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const currentUser: User = activeUser || {
     id: `usr-${role}`,
     username: role,
-    name: 'کاربر سیستم',
+    name: "کاربر سیستم",
     role,
     active: true,
   };
 
   const setRole = (newRole: UserRole) => {
     setRoleState(newRole);
-    if (newRole === 'agent') {
-      setActiveTab('agent_view');
-    } else if (newRole === 'team_lead') {
-      setActiveTab('team_view');
-    } else if (newRole === 'manager') {
-      setActiveTab('manager_view');
-    } else if (newRole === 'qa_controller') {
-      setActiveTab('workspace');
-    } else if (newRole === 'qa_supervisor') {
-      setActiveTab('audits');
-    } else if (newRole === 'admin') {
-      setActiveTab('admin_view');
+    if (newRole === "agent") {
+      setActiveTab("agent_view");
+    } else if (newRole === "team_lead") {
+      setActiveTab("team_view");
+    } else if (newRole === "manager") {
+      setActiveTab("manager_view");
+    } else if (newRole === "qa_controller") {
+      setActiveTab("workspace");
+    } else if (newRole === "qa_supervisor") {
+      setActiveTab("audits");
+    } else if (newRole === "admin") {
+      setActiveTab("admin_view");
     }
   };
 
@@ -75,14 +81,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCurrentAgentId(user.agent_id);
     }
     if (user.team_id) {
-      setCurrentTeamLeadId(user.team_id);
+      setCurrentTeamLeadId(user.id);
     } else if (user.team) {
-      setCurrentTeamLeadId(user.team);
+      setCurrentTeamLeadId(user.id);
     }
     if (user.department) {
       setCurrentManagerDept(user.department as DepartmentType);
     }
-    if (user.role === 'qa_controller') {
+    if (user.role === "qa_controller") {
       setCurrentControllerId(user.id || user.username);
     }
   }, []);
@@ -94,34 +100,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const initAuth = async () => {
       try {
-        const meRes = await fetch('/api/auth/me');
+        const meRes = await fetch("/api/auth/me");
         const meData = await meRes.json();
-        if (isMounted && meData.success && meData.authenticated && meData.user) {
+        if (
+          isMounted &&
+          meData.success &&
+          meData.authenticated &&
+          meData.user
+        ) {
           setActiveUser(meData.user);
           setRoleState(meData.user.role);
           setIsAuthenticated(true);
           bindUserRelationships(meData.user);
-          await refreshAppData();
+          setRole(meData.user.role);
+          await refreshAppData(handleUnauthorized);
           return;
         }
-
-        // Auto-login as default admin for instant AI Studio preview visibility
-        try {
-          const loginRes = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: 'admin', password: 'snappfood123' }),
-          });
-          const loginData = await loginRes.json();
-          if (isMounted && loginRes.ok && loginData.success && loginData.user) {
-            setActiveUser(loginData.user);
-            setRoleState(loginData.user.role);
-            setIsAuthenticated(true);
-            bindUserRelationships(loginData.user);
-            await refreshAppData();
-            return;
-          }
-        } catch {}
 
         if (isMounted) {
           setActiveUser(null);
@@ -129,7 +123,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setShowLoginModal(true);
         }
       } catch (err) {
-        console.error('Initial session check error:', err);
+        console.error("Initial session check error:", err);
         if (isMounted) {
           setActiveUser(null);
           setIsAuthenticated(false);
@@ -149,26 +143,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [bindUserRelationships, refreshAppData]);
 
+  useEffect(() => {
+    const expired = () => handleUnauthorized();
+    window.addEventListener("qa-session-expired", expired);
+    return () => window.removeEventListener("qa-session-expired", expired);
+  }, [handleUnauthorized]);
+
   // Auth: Login
   const login = async (user: User) => {
+    data.clearData();
+    setCurrentAgentId("");
+    setCurrentTeamLeadId("");
+    setCurrentControllerId("");
     setActiveUser(user);
     setRoleState(user.role);
     setIsAuthenticated(true);
     setShowLoginModal(false);
     bindUserRelationships(user);
 
-    if (user.role === 'agent') {
-      setActiveTab('agent_view');
-    } else if (user.role === 'team_lead') {
-      setActiveTab('team_view');
-    } else if (user.role === 'manager') {
-      setActiveTab('manager_view');
-    } else if (user.role === 'qa_controller') {
-      setActiveTab('workspace');
-    } else if (user.role === 'admin') {
-      setActiveTab('admin_view');
+    if (user.role === "agent") {
+      setActiveTab("agent_view");
+    } else if (user.role === "team_lead") {
+      setActiveTab("team_view");
+    } else if (user.role === "manager") {
+      setActiveTab("manager_view");
+    } else if (user.role === "qa_controller") {
+      setActiveTab("workspace");
+    } else if (user.role === "admin") {
+      setActiveTab("admin_view");
     } else {
-      setActiveTab('audits');
+      setActiveTab("audits");
     }
 
     data.refreshData(handleUnauthorized);
@@ -176,14 +180,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Auth: Logout
   const logout = async () => {
-    setActiveUser(null);
-    setIsAuthenticated(false);
-    data.clearData();
-    setShowLoginModal(true);
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-    } catch (e) {
-      console.error('Logout error:', e);
+      await api("/api/auth/logout", "POST", {});
+      setActiveUser(null);
+      setIsAuthenticated(false);
+      data.clearData();
+      setCurrentAgentId("");
+      setCurrentTeamLeadId("");
+      setCurrentControllerId("");
+      setShowLoginModal(true);
+    } catch (e: any) {
+      data.setError(e.message);
     }
   };
 
@@ -271,7 +278,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 export const useApp = () => {
   const context = useContext(AppContext);
   if (!context) {
-    throw new Error('useApp must be used within an AppProvider');
+    throw new Error("useApp must be used within an AppProvider");
   }
   return context;
 };

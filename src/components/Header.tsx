@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   ShieldCheck,
   Moon,
@@ -19,21 +19,50 @@ import {
   Activity,
   LogOut,
   LogIn,
-} from 'lucide-react';
-import { useApp } from '../context/AppContext.tsx';
-import { UserRole } from '../types/index.ts';
-import { toPersianDigits } from '../utils/persian.ts';
+} from "lucide-react";
+import { useApp } from "../context/AppContext.tsx";
+import { UserRole } from "../types/index.ts";
+import { toPersianDigits } from "../utils/persian.ts";
 
-const ROLE_LABELS: Record<UserRole, { title: string; color: string; desc: string }> = {
-  agent: { title: 'کارشناس (Agent)', color: 'bg-emerald-500', desc: 'مشاهده کارنامه، نمرات و ثبت اعتراض' },
-  team_lead: { title: 'سرپرست تیم (Lead)', color: 'bg-indigo-500', desc: 'روند تیم، صندوق نیازمند بررسی و تارگت ۴۰' },
-  manager: { title: 'مدیر واحد (Manager)', color: 'bg-purple-500', desc: 'تحلیل کلان، مقایسه تیم‌ها و رتبه‌بندی' },
-  qa_controller: { title: 'کنترلر کیفیت (QA)', color: 'bg-sky-500', desc: 'میز ارزیابی، بازشنوایی و رسیدگی به اعتراضات' },
-  qa_supervisor: { title: 'سوپروایزر (Supervisor)', color: 'bg-amber-500', desc: 'نظارت جامع، مدیریت رستر و دسترسی کامل' },
-  admin: { title: 'ادمین سیستم (Admin)', color: 'bg-rose-500', desc: 'تنظیمات رابریک، کاربران و داده‌ها' },
+const ROLE_LABELS: Record<
+  UserRole,
+  { title: string; color: string; desc: string }
+> = {
+  agent: {
+    title: "کارشناس (Agent)",
+    color: "bg-emerald-500",
+    desc: "مشاهده کارنامه، نمرات و ثبت اعتراض",
+  },
+  team_lead: {
+    title: "سرپرست تیم (Lead)",
+    color: "bg-indigo-500",
+    desc: "روند تیم، صندوق نیازمند بررسی و تارگت ۴۰",
+  },
+  manager: {
+    title: "مدیر واحد (Manager)",
+    color: "bg-purple-500",
+    desc: "تحلیل کلان، مقایسه تیم‌ها و رتبه‌بندی",
+  },
+  qa_controller: {
+    title: "کنترلر کیفیت (QA)",
+    color: "bg-sky-500",
+    desc: "میز ارزیابی، بازشنوایی و رسیدگی به اعتراضات",
+  },
+  qa_supervisor: {
+    title: "سوپروایزر (Supervisor)",
+    color: "bg-amber-500",
+    desc: "نظارت جامع، مدیریت رستر و دسترسی کامل",
+  },
+  admin: {
+    title: "ادمین سیستم (Admin)",
+    color: "bg-rose-500",
+    desc: "تنظیمات رابریک، کاربران و داده‌ها",
+  },
 };
 
-export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBackupModal }) => {
+export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({
+  onOpenBackupModal,
+}) => {
   const {
     role,
     setRole,
@@ -52,16 +81,19 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
   } = useApp();
 
   // Permit DEV_ROLE_SWITCH only in explicitly configured development
-  const isDevRoleSwitch = import.meta.env.VITE_DEV_ROLE_SWITCH === 'true';
+  const isDevRoleSwitch =
+    import.meta.env.DEV && import.meta.env.VITE_DEV_ROLE_SWITCH === "true";
 
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Count pending items for badges
   const needToCheckCount = assessments.filter(
-    (a) => a.result === 'Need to check' && !a.team_lead_reviewed
+    (a) => a.result === "Need to check" && !a.team_lead_reviewed,
   ).length;
-  const pendingDisputesCount = assessments.filter((a) => a.dispute?.status === 'pending').length;
+  const pendingDisputesCount = assessments.filter(
+    (a) => a.dispute?.status === "open",
+  ).length;
 
   const currentAgent = agents.find((a) => a.id === currentAgentId) || agents[0];
 
@@ -82,7 +114,8 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
             <div>
               <div className="flex items-center gap-1.5 sm:gap-2">
                 <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tracking-tight whitespace-nowrap">
-                  <span className="hidden sm:inline">سامانه کیفیت </span>اسنپ‌فود
+                  <span className="hidden sm:inline">سامانه کیفیت </span>
+                  اسنپ‌فود
                 </span>
                 <span className="text-[10px] sm:text-[11px] font-medium px-2 py-0.5 rounded-full bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 hidden md:inline-block">
                   عملیات تجاری
@@ -94,14 +127,14 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
           {/* Desktop Navigation Links based on active role */}
           <nav className="hidden lg:flex items-center gap-1 text-xs font-semibold">
             {/* QA Controller / Supervisor / Admin: New Evaluation */}
-            {(role === 'qa_controller' || role === 'qa_supervisor' || role === 'admin') && (
+            {(role === "qa_controller" || role === "qa_supervisor") && (
               <button
                 type="button"
-                onClick={() => handleTabClick('workspace')}
+                onClick={() => handleTabClick("workspace")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all whitespace-nowrap ${
-                  activeTab === 'workspace'
-                    ? 'bg-sky-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  activeTab === "workspace"
+                    ? "bg-sky-600 text-white shadow-xs font-bold"
+                    : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                 }`}
               >
                 <FileSpreadsheet className="w-4 h-4" />
@@ -110,14 +143,14 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
             )}
 
             {/* Agent: My Scorecard */}
-            {role === 'agent' && (
+            {role === "agent" && (
               <button
                 type="button"
-                onClick={() => handleTabClick('agent_view')}
+                onClick={() => handleTabClick("agent_view")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all whitespace-nowrap ${
-                  activeTab === 'agent_view'
-                    ? 'bg-sky-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  activeTab === "agent_view"
+                    ? "bg-sky-600 text-white shadow-xs font-bold"
+                    : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                 }`}
               >
                 <UserCheck className="w-4 h-4" />
@@ -126,14 +159,16 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
             )}
 
             {/* Team Lead: Team Dashboard & Trend Charts */}
-            {(role === 'team_lead' || role === 'qa_supervisor' || role === 'admin') && (
+            {(role === "team_lead" ||
+              role === "qa_supervisor" ||
+              role === "admin") && (
               <button
                 type="button"
-                onClick={() => handleTabClick('team_view')}
+                onClick={() => handleTabClick("team_view")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all whitespace-nowrap ${
-                  activeTab === 'team_view'
-                    ? 'bg-sky-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  activeTab === "team_view"
+                    ? "bg-sky-600 text-white shadow-xs font-bold"
+                    : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                 }`}
               >
                 <Users className="w-4 h-4" />
@@ -142,14 +177,17 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
             )}
 
             {/* Need to Check Queue (Team Lead & QA) */}
-            {(role === 'team_lead' || role === 'manager' || role === 'qa_supervisor' || role === 'admin') && (
+            {(role === "team_lead" ||
+              role === "manager" ||
+              role === "qa_supervisor" ||
+              role === "admin") && (
               <button
                 type="button"
-                onClick={() => handleTabClick('need_to_check')}
+                onClick={() => handleTabClick("need_to_check")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all whitespace-nowrap ${
-                  activeTab === 'need_to_check'
-                    ? 'bg-amber-500 text-white shadow-xs font-bold'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  activeTab === "need_to_check"
+                    ? "bg-amber-500 text-white shadow-xs font-bold"
+                    : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                 }`}
               >
                 <Inbox className="w-4 h-4" />
@@ -157,9 +195,9 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
                 {needToCheckCount > 0 && (
                   <span
                     className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
-                      activeTab === 'need_to_check'
-                        ? 'bg-white text-amber-600'
-                        : 'bg-amber-500 text-white'
+                      activeTab === "need_to_check"
+                        ? "bg-white text-amber-600"
+                        : "bg-amber-500 text-white"
                     }`}
                   >
                     {toPersianDigits(needToCheckCount)}
@@ -169,14 +207,14 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
             )}
 
             {/* Disputes Queue (QA Controller, Supervisor, Admin) */}
-            {(role === 'qa_controller' || role === 'qa_supervisor' || role === 'admin') && (
+            {(role === "qa_controller" || role === "qa_supervisor") && (
               <button
                 type="button"
-                onClick={() => handleTabClick('disputes')}
+                onClick={() => handleTabClick("disputes")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all whitespace-nowrap ${
-                  activeTab === 'disputes'
-                    ? 'bg-rose-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  activeTab === "disputes"
+                    ? "bg-rose-600 text-white shadow-xs font-bold"
+                    : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                 }`}
               >
                 <span>رسیدگی به اعتراضات</span>
@@ -189,14 +227,16 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
             )}
 
             {/* Manager: Executive Analytics */}
-            {(role === 'manager' || role === 'qa_supervisor' || role === 'admin') && (
+            {(role === "manager" ||
+              role === "qa_supervisor" ||
+              role === "admin") && (
               <button
                 type="button"
-                onClick={() => handleTabClick('manager_view')}
+                onClick={() => handleTabClick("manager_view")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all whitespace-nowrap ${
-                  activeTab === 'manager_view'
-                    ? 'bg-purple-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  activeTab === "manager_view"
+                    ? "bg-purple-600 text-white shadow-xs font-bold"
+                    : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                 }`}
               >
                 <BarChart3 className="w-4 h-4" />
@@ -207,25 +247,25 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
             {/* Universal Audits History */}
             <button
               type="button"
-              onClick={() => handleTabClick('audits')}
+              onClick={() => handleTabClick("audits")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all whitespace-nowrap ${
-                activeTab === 'audits'
-                  ? 'bg-sky-600 text-white shadow-xs font-bold'
-                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                activeTab === "audits"
+                  ? "bg-sky-600 text-white shadow-xs font-bold"
+                  : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               }`}
             >
               <span>تاریخچه ارزیابی‌ها</span>
             </button>
 
             {/* Admin: System Settings */}
-            {(role === 'admin' || role === 'qa_supervisor') && (
+            {(role === "admin" || role === "qa_supervisor") && (
               <button
                 type="button"
-                onClick={() => handleTabClick('admin_view')}
+                onClick={() => handleTabClick("admin_view")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all whitespace-nowrap ${
-                  activeTab === 'admin_view'
-                    ? 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 shadow-xs font-bold'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  activeTab === "admin_view"
+                    ? "bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 shadow-xs font-bold"
+                    : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                 }`}
               >
                 <Settings className="w-4 h-4" />
@@ -234,14 +274,14 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
             )}
 
             {/* System Audit Log (QA Controller, Supervisor, Admin) */}
-            {(role === 'qa_controller' || role === 'qa_supervisor' || role === 'admin') && (
+            {(role === "qa_controller" || role === "qa_supervisor") && (
               <button
                 type="button"
-                onClick={() => handleTabClick('system_audit_log')}
+                onClick={() => handleTabClick("system_audit_log")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all whitespace-nowrap ${
-                  activeTab === 'system_audit_log'
-                    ? 'bg-indigo-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  activeTab === "system_audit_log"
+                    ? "bg-indigo-600 text-white shadow-xs font-bold"
+                    : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                 }`}
               >
                 <Activity className="w-4 h-4" />
@@ -261,12 +301,16 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 transition-colors shadow-2xs"
                   title="تغییر نقش کاربری جهت تست آسان تمام امکانات (محیط توسعه)"
                 >
-                  <span className={`w-2.5 h-2.5 rounded-full ${ROLE_LABELS[role].color}`} />
-                  <span className="font-bold">نقش: {ROLE_LABELS[role].title.split(' ')[0]}</span>
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full ${ROLE_LABELS[role].color}`}
+                  />
+                  <span className="font-bold">
+                    نقش: {ROLE_LABELS[role].title.split(" ")[0]}
+                  </span>
                   <span className="text-[9px] font-mono font-bold px-1 py-0.2 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800">
                     DEV
                   </span>
-                  {pendingDisputesCount > 0 && role === 'qa_controller' && (
+                  {pendingDisputesCount > 0 && role === "qa_controller" && (
                     <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
                   )}
                 </button>
@@ -301,14 +345,16 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
                           onClick={() => {
                             setRole(r);
                             setRoleMenuOpen(false);
-                            if (r === 'agent') setActiveTab('agent_view');
-                            else if (r === 'team_lead') setActiveTab('team_view');
-                            else if (r === 'manager') setActiveTab('manager_view');
+                            if (r === "agent") setActiveTab("agent_view");
+                            else if (r === "team_lead")
+                              setActiveTab("team_view");
+                            else if (r === "manager")
+                              setActiveTab("manager_view");
                           }}
                           className={`w-full text-right px-3.5 py-2.5 flex items-start gap-2.5 transition-colors ${
                             isSelected
-                              ? 'bg-sky-50 dark:bg-sky-950/50 text-sky-900 dark:text-sky-200 font-medium'
-                              : 'hover:bg-slate-50 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-300'
+                              ? "bg-sky-50 dark:bg-sky-950/50 text-sky-900 dark:text-sky-200 font-medium"
+                              : "hover:bg-slate-50 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-300"
                           }`}
                         >
                           <span
@@ -332,7 +378,7 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
                     })}
 
                     {/* Agent identity select if in agent role */}
-                    {role === 'agent' && (
+                    {role === "agent" && (
                       <div className="p-3 border-t border-slate-100 dark:border-slate-700/80 mt-1 bg-slate-50/50 dark:bg-slate-900/40">
                         <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 block mb-1">
                           انتخاب کارشناس فعال جهت نمایش کارنامه:
@@ -344,7 +390,8 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
                         >
                           {agents.map((ag) => (
                             <option key={ag.id} value={ag.id}>
-                              {ag.name} ({ag.team} - {toPersianDigits(ag.source_id)})
+                              {ag.name} ({ag.team} -{" "}
+                              {toPersianDigits(ag.source_id)})
                             </option>
                           ))}
                         </select>
@@ -359,14 +406,16 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
             <div className="flex items-center gap-1.5 pl-1 border-l border-slate-200 dark:border-slate-800">
               <div
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold"
-                title={`کاربر: ${currentUser?.name || ''} (${currentUser?.username || ''})`}
+                title={`کاربر: ${currentUser?.name || ""} (${currentUser?.username || ""})`}
               >
-                <span className={`w-2 h-2 rounded-full ${ROLE_LABELS[role].color}`} />
+                <span
+                  className={`w-2 h-2 rounded-full ${ROLE_LABELS[role].color}`}
+                />
                 <span className="font-bold text-slate-800 dark:text-slate-200 hidden sm:inline max-w-[110px] truncate">
-                  {currentUser?.name || 'کاربر'}
+                  {currentUser?.name || "کاربر"}
                 </span>
                 <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold border border-slate-200/60 dark:border-slate-600">
-                  {ROLE_LABELS[role].title.split(' ')[0]}
+                  {ROLE_LABELS[role].title.split(" ")[0]}
                 </span>
               </div>
 
@@ -407,9 +456,9 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
               type="button"
               onClick={toggleTheme}
               className="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-              title={theme === 'dark' ? 'حالت روز' : 'حالت شب'}
+              title={theme === "dark" ? "حالت روز" : "حالت شب"}
             >
-              {theme === 'dark' ? (
+              {theme === "dark" ? (
                 <Sun className="w-4 h-4 text-amber-400" />
               ) : (
                 <Moon className="w-4 h-4 text-slate-600" />
@@ -423,7 +472,11 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
               className="lg:hidden p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
               title="منوی ناوبری"
             >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              {mobileMenuOpen ? (
+                <X className="w-5 h-5" />
+              ) : (
+                <Menu className="w-5 h-5" />
+              )}
             </button>
           </div>
         </div>
@@ -432,56 +485,61 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
       {/* Mobile Navigation Drawer */}
       {mobileMenuOpen && (
         <div className="lg:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-2">
-          {(role === 'qa_controller' || role === 'qa_supervisor' || role === 'admin') && (
+          {(role === "qa_controller" || role === "qa_supervisor") && (
             <button
               type="button"
-              onClick={() => handleTabClick('workspace')}
+              onClick={() => handleTabClick("workspace")}
               className={`w-full text-right p-2.5 rounded-xl text-xs font-semibold ${
-                activeTab === 'workspace'
-                  ? 'bg-sky-600 text-white font-bold'
-                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                activeTab === "workspace"
+                  ? "bg-sky-600 text-white font-bold"
+                  : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               }`}
             >
               میز ارزیابی جدید
             </button>
           )}
 
-          {role === 'agent' && (
+          {role === "agent" && (
             <button
               type="button"
-              onClick={() => handleTabClick('agent_view')}
+              onClick={() => handleTabClick("agent_view")}
               className={`w-full text-right p-2.5 rounded-xl text-xs font-semibold ${
-                activeTab === 'agent_view'
-                  ? 'bg-sky-600 text-white font-bold'
-                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                activeTab === "agent_view"
+                  ? "bg-sky-600 text-white font-bold"
+                  : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               }`}
             >
               کارنامه و نمرات من
             </button>
           )}
 
-          {(role === 'team_lead' || role === 'qa_supervisor' || role === 'admin') && (
+          {(role === "team_lead" ||
+            role === "qa_supervisor" ||
+            role === "admin") && (
             <button
               type="button"
-              onClick={() => handleTabClick('team_view')}
+              onClick={() => handleTabClick("team_view")}
               className={`w-full text-right p-2.5 rounded-xl text-xs font-semibold ${
-                activeTab === 'team_view'
-                  ? 'bg-sky-600 text-white font-bold'
-                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                activeTab === "team_view"
+                  ? "bg-sky-600 text-white font-bold"
+                  : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               }`}
             >
               داشبورد و روند تیم
             </button>
           )}
 
-          {(role === 'team_lead' || role === 'manager' || role === 'qa_supervisor' || role === 'admin') && (
+          {(role === "team_lead" ||
+            role === "manager" ||
+            role === "qa_supervisor" ||
+            role === "admin") && (
             <button
               type="button"
-              onClick={() => handleTabClick('need_to_check')}
+              onClick={() => handleTabClick("need_to_check")}
               className={`w-full text-right p-2.5 rounded-xl text-xs font-semibold flex items-center justify-between ${
-                activeTab === 'need_to_check'
-                  ? 'bg-amber-500 text-white font-bold'
-                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                activeTab === "need_to_check"
+                  ? "bg-amber-500 text-white font-bold"
+                  : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               }`}
             >
               <span>صندوق نیازمند بررسی</span>
@@ -493,14 +551,14 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
             </button>
           )}
 
-          {(role === 'qa_controller' || role === 'qa_supervisor' || role === 'admin') && (
+          {(role === "qa_controller" || role === "qa_supervisor") && (
             <button
               type="button"
-              onClick={() => handleTabClick('disputes')}
+              onClick={() => handleTabClick("disputes")}
               className={`w-full text-right p-2.5 rounded-xl text-xs font-semibold flex items-center justify-between ${
-                activeTab === 'disputes'
-                  ? 'bg-rose-600 text-white font-bold'
-                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                activeTab === "disputes"
+                  ? "bg-rose-600 text-white font-bold"
+                  : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               }`}
             >
               <span>رسیدگی به اعتراضات</span>
@@ -512,14 +570,16 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
             </button>
           )}
 
-          {(role === 'manager' || role === 'qa_supervisor' || role === 'admin') && (
+          {(role === "manager" ||
+            role === "qa_supervisor" ||
+            role === "admin") && (
             <button
               type="button"
-              onClick={() => handleTabClick('manager_view')}
+              onClick={() => handleTabClick("manager_view")}
               className={`w-full text-right p-2.5 rounded-xl text-xs font-semibold ${
-                activeTab === 'manager_view'
-                  ? 'bg-purple-600 text-white font-bold'
-                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                activeTab === "manager_view"
+                  ? "bg-purple-600 text-white font-bold"
+                  : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               }`}
             >
               تحلیل کلان واحدها
@@ -528,24 +588,24 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
 
           <button
             type="button"
-            onClick={() => handleTabClick('audits')}
+            onClick={() => handleTabClick("audits")}
             className={`w-full text-right p-2.5 rounded-xl text-xs font-semibold ${
-              activeTab === 'audits'
-                ? 'bg-sky-600 text-white font-bold'
-                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+              activeTab === "audits"
+                ? "bg-sky-600 text-white font-bold"
+                : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
             }`}
           >
             تاریخچه ارزیابی‌ها
           </button>
 
-          {(role === 'admin' || role === 'qa_supervisor') && (
+          {(role === "admin" || role === "qa_supervisor") && (
             <button
               type="button"
-              onClick={() => handleTabClick('admin_view')}
+              onClick={() => handleTabClick("admin_view")}
               className={`w-full text-right p-2.5 rounded-xl text-xs font-semibold ${
-                activeTab === 'admin_view'
-                  ? 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 font-bold'
-                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                activeTab === "admin_view"
+                  ? "bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 font-bold"
+                  : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               }`}
             >
               تنظیمات و رستر

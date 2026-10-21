@@ -1,4 +1,5 @@
-import React from 'react';
+import { api as checkedApi } from "../utils/api.ts";
+import React from "react";
 import {
   Assessment,
   Agent,
@@ -8,8 +9,8 @@ import {
   RubricSection,
   DepartmentType,
   User,
-} from '../types/index.ts';
-import { validateRubricDefinition } from '../utils/scoring.ts';
+} from "../types/index.ts";
+import { validateRubricDefinition } from "../utils/scoring.ts";
 
 interface UseAppMutationsProps {
   currentUser: User;
@@ -70,517 +71,297 @@ export function useAppMutations({
   setError,
   setLoading,
 }: UseAppMutationsProps) {
-  // 1. Assessments
-  const addAssessment = (assessmentData: Omit<Assessment, 'id' | 'created_at'>): Assessment => {
-    const newId = `qa-${Date.now().toString().slice(-6)}`;
-    const newAssessment: Assessment = {
-      ...assessmentData,
-      id: newId,
-      created_at: new Date().toISOString(),
-    };
-
-    // Optimistic update
-    setAssessments((prev) => [newAssessment, ...prev]);
-
-    // Send to backend Prisma API
-    fetch('/api/assessments', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...newAssessment, currentUser }),
-    })
-      .then((res) => res.json())
-      .then((res) => {
-        if (res.success && res.data) {
-          setAssessments((prev) => prev.map((a) => (a.id === newId ? res.data : a)));
-        }
-        refreshAuditLogs();
-      })
-      .catch((err) => {
-        console.error('Failed to create assessment on backend:', err);
-        setError('خطا در ذخیره ارزیابی در پایگاه‌داده');
-      });
-
-    return newAssessment;
+  const identity = React.useRef(currentUser.id);
+  identity.current = currentUser.id;
+  const api = async <T = any>(
+    ...args: Parameters<typeof checkedApi>
+  ): Promise<T> => {
+    const user = currentUser.id;
+    const response = await checkedApi<T>(...args);
+    if (identity.current !== user)
+      throw new Error("نشست کاربری تغییر کرده است");
+    return response;
   };
-
-  const updateAssessment = async (id: string, updates: Partial<Assessment>) => {
-    // Optimistic update
-    setAssessments((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, ...updates, updated_at: new Date().toISOString() } : item
-      )
-    );
-
+  const run = async <T>(operation: () => Promise<T>): Promise<T> => {
+    setError(null);
     try {
-      const res = await fetch(`/api/assessments/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...updates, currentUser }),
-      });
-      const data = await res.json();
-      if (data.success && data.data) {
-        setAssessments((prev) => prev.map((item) => (item.id === id ? data.data : item)));
+      return await operation();
+    } catch (e: any) {
+      if (identity.current === currentUser.id)
+        setError(e.message || "عملیات انجام نشد");
+      throw e;
+    }
+  };
+  const applyAssessment = (record: Assessment) =>
+    setAssessments((prev) =>
+      prev.some((a) => a.id === record.id)
+        ? prev.map((a) => (a.id === record.id ? record : a))
+        : [record, ...prev],
+    );
+  const addAssessment = async (
+    data: Omit<Assessment, "id" | "created_at">,
+  ): Promise<Assessment> =>
+    run(async () => {
+      const key = crypto.randomUUID();
+      const { total_score, ...payload } = data;
+      let response;
+      try {
+        response = await api("/api/assessments", "POST", payload, {
+          "Idempotency-Key": key,
+        });
+      } catch (e: any) {
+        if (e.code !== "DUPLICATE_TICKET" || !window.confirm(e.message))
+          throw e;
+        response = await api(
+          "/api/assessments",
+          "POST",
+          { ...payload, confirm_duplicate: true },
+          { "Idempotency-Key": key },
+        );
       }
-      refreshAuditLogs();
-    } catch (err) {
-      console.error('Failed to update assessment on backend:', err);
-      setError('خطا در ویرایش ارزیابی در سرور');
-    }
-  };
-
-  const deleteAssessment = async (id: string) => {
-    // Optimistic soft delete
-    setAssessments((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, deleted_at: new Date().toISOString() } : item
-      )
-    );
-
-    try {
-      await fetch(`/api/assessments/${id}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentUser }),
+      applyAssessment(response.data);
+      await refreshAuditLogs();
+      return response.data;
+    });
+  const updateAssessment = async (id: string, updates: Partial<Assessment>) =>
+    run(async () => {
+      const revision =
+        updates.revision ?? assessments.find((a) => a.id === id)?.revision;
+      const response = await api(`/api/assessments/${id}`, "PUT", {
+        ...updates,
+        revision,
       });
-      refreshAuditLogs();
-    } catch (err) {
-      console.error('Failed to soft delete assessment:', err);
-      setError('خطا در حذف ارزیابی در سرور');
-    }
-  };
-
-  const restoreAssessment = async (id: string) => {
-    setAssessments((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, deleted_at: null } : item))
-    );
-
-    try {
-      const res = await fetch(`/api/assessments/${id}/restore`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentUser }),
+      applyAssessment(response.data);
+      await refreshAuditLogs();
+    });
+  const deleteAssessment = async (id: string, revision?: number) =>
+    run(async () => {
+      await api(`/api/assessments/${id}`, "DELETE", {
+        revision: revision ?? assessments.find((a) => a.id === id)?.revision,
       });
-      const data = await res.json();
-      if (data.success && data.data) {
-        setAssessments((prev) => prev.map((item) => (item.id === id ? data.data : item)));
-      }
-      refreshAuditLogs();
-    } catch (err) {
-      console.error('Failed to restore assessment:', err);
-    }
-  };
-
-  const markTeamLeadReviewed = async (assessmentId: string, note: string) => {
-    // Optimistic update
-    setAssessments((prev) =>
-      prev.map((item) =>
-        item.id === assessmentId
-          ? {
-              ...item,
-              result: 'بررسی شده',
-              team_lead_reviewed: true,
-              team_lead_note: note,
-              team_lead_reviewed_at: new Date().toLocaleDateString('fa-IR'),
-            }
-          : item
-      )
-    );
-
-    try {
-      const res = await fetch(`/api/assessments/${assessmentId}/review`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note, currentUser }),
-      });
-      const data = await res.json();
-      if (data.success && data.data) {
-        setAssessments((prev) => prev.map((item) => (item.id === assessmentId ? data.data : item)));
-      }
-      refreshAuditLogs();
-    } catch (err) {
-      console.error('Failed to submit team lead review:', err);
-    }
-  };
-
-  // 2. Disputes
+      await refreshData();
+    });
+  const restoreAssessment = async (id: string) =>
+    run(async () => {
+      const r = await api(`/api/assessments/${id}/restore`, "POST", {});
+      applyAssessment(r.data);
+      await refreshAuditLogs();
+    });
+  const markTeamLeadReviewed = async (id: string, note: string) =>
+    run(async () => {
+      const r = await api(`/api/assessments/${id}/review`, "POST", { note });
+      applyAssessment(r.data);
+      await refreshAuditLogs();
+    });
   const submitDispute = async (
-    assessmentId: string,
-    criterionId: string,
-    criterionTitle: string,
-    agentComment: string
-  ) => {
-    const target = assessments.find((a) => a.id === assessmentId);
-    if (!target) return;
-
-    const currentAgent = agents.find((a) => a.id === target.agent_id);
-    const dispute = {
-      id: `disp-${Date.now().toString().slice(-4)}`,
-      status: 'pending' as const,
-      created_at:
-        new Date().toLocaleDateString('fa-IR') +
-        ' ' +
-        new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
-      agent_id: target.agent_id,
-      agent_name: currentAgent?.name || 'کارشناس',
-      criterion_id: criterionId,
-      criterion_title: criterionTitle,
-      agent_comment: agentComment,
-      original_score: target.total_score,
-    };
-
-    setAssessments((prev) =>
-      prev.map((a) => (a.id === assessmentId ? { ...a, dispute } : a))
-    );
-
-    try {
-      await fetch(`/api/assessments/${assessmentId}/dispute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          criterion_id: criterionId,
-          criterion_title: criterionTitle,
-          agent_comment: agentComment,
-          currentUser,
-        }),
+    id: string,
+    criterion_id: string,
+    criterion_title: string,
+    agent_comment: string,
+  ) =>
+    run(async () => {
+      await api(`/api/assessments/${id}/dispute`, "POST", {
+        criterion_id,
+        criterion_title,
+        agent_comment,
       });
-      refreshAuditLogs();
-    } catch (err) {
-      console.error('Failed to submit dispute:', err);
-    }
-  };
-
+      const r = await api(`/api/assessments/${id}`);
+      applyAssessment(r.data);
+      await refreshAuditLogs();
+    });
   const resolveDispute = async (
-    assessmentId: string,
-    status: 'resolved' | 'rejected' | 'in_review',
-    controllerComment: string,
-    revisedScore?: number
-  ) => {
-    const target = assessments.find((a) => a.id === assessmentId);
-    if (!target || !target.dispute) return;
-
-    const finalScore =
-      status === 'resolved' && revisedScore !== undefined ? revisedScore : target.total_score;
-
-    const updatedDispute = {
-      ...target.dispute,
-      status,
-      controller_id: currentUser.username,
-      controller_comment: controllerComment || (status === 'in_review' ? 'در حال بازشنوایی و بررسی مجدد توسط کنترلر' : ''),
-      resolved_at: status === 'in_review' ? undefined : new Date().toLocaleDateString('fa-IR'),
-      revised_score: status === 'resolved' ? finalScore : target.total_score,
-    };
-
-    setAssessments((prev) =>
-      prev.map((a) =>
-        a.id === assessmentId
-          ? {
-              ...a,
-              dispute: updatedDispute,
-              total_score: finalScore,
-            }
-          : a
-      )
-    );
-
-    try {
-      const res = await fetch(`/api/disputes/${assessmentId}/resolve`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+    id: string,
+    status: "accepted" | "rejected" | "in_review",
+    controller_comment: string,
+    item_scores?: Record<string, number>,
+    expected?: { revision?: number; disputeId?: string },
+  ) =>
+    run(async () => {
+      const target =
+        assessments.find((a) => a.id === id) ||
+        (await api(`/api/assessments/${id}`)).data;
+      if (!target?.dispute)
+        throw new Error("اعتراض یافت نشد؛ صفحه را تازه کنید");
+      const r = await api(
+        `/api/disputes/${expected?.disputeId || target.dispute.id}/resolve`,
+        "PUT",
+        {
           status,
-          controller_comment: controllerComment,
-          revised_score: revisedScore,
-          currentUser,
-        }),
-      });
-      const data = await res.json();
-      if (data.success && data.data) {
-        setAssessments((prev) => prev.map((item) => (item.id === assessmentId ? data.data : item)));
-      }
-      refreshAuditLogs();
-    } catch (err) {
-      console.error('Failed to resolve dispute:', err);
-    }
+          controller_comment,
+          item_scores,
+          revision: expected?.revision ?? target.revision,
+        },
+      );
+      applyAssessment(r.data);
+      await refreshAuditLogs();
+    });
+  const resetToSeedData = async () =>
+    run(async () => {
+      await api("/api/system/reset-seed", "POST", {});
+      await refreshData();
+    });
+  const exportDataToJson = () =>
+    JSON.stringify(
+      {
+        assessments,
+        agents,
+        faults,
+        settings,
+        problems,
+        notice: "This is a scoped UI snapshot, not a full database backup.",
+      },
+      null,
+      2,
+    );
+  const importDataFromJson = (_json: string) => {
+    setError(
+      "بازیابی JSON در مرورگر مجاز نیست؛ از واردسازی معتبر CSV یا بازیابی دیتابیس استفاده کنید.",
+    );
+    return false;
   };
-
-  // 3. Reset & Backup
-  const resetToSeedData = async () => {
+  const importAgentsFromCsv = async (csvText: string, dryRun: boolean) => {
     try {
-      setLoading(true);
-      const res = await fetch('/api/system/reset-seed', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentUser }),
+      const r = await api("/api/agents/import-csv", "POST", {
+        csvText,
+        dryRun,
       });
-      if (res.ok) {
-        await refreshData();
-      }
-    } catch (e) {
-      console.error('Failed to reset database:', e);
-    } finally {
-      setLoading(false);
+      if (!dryRun) await refreshData();
+      return r;
+    } catch (e: any) {
+      return { success: false, count: 0, errors: [e.message] };
     }
   };
-
-  const exportDataToJson = () => {
-    const data = {
-      assessments,
-      agents,
-      faults,
-      auditLogs: [],
-      settings,
-      problems,
-      supportRubric,
-      salesRubric,
-    };
-    return JSON.stringify(data, null, 2);
-  };
-
-  const importDataFromJson = (jsonStr: string): boolean => {
-    try {
-      const data = JSON.parse(jsonStr);
-      if (data.assessments) setAssessments(data.assessments);
-      if (data.agents) setAgents(data.agents);
-      if (data.faults) setFaults(data.faults);
-      if (data.settings) setSettings(data.settings);
-      if (data.problems) setProblems(data.problems);
-      return true;
-    } catch (e) {
-      console.error(e);
-      return false;
-    }
-  };
-
-  const importAgentsFromCsv = async (
-    csvText: string,
-    dryRun: boolean
-  ): Promise<{ success: boolean; count: number; errors: string[] }> => {
-    try {
-      const res = await fetch('/api/agents/import-csv', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ csvText, dryRun, currentUser }),
-      });
-      const data = await res.json();
-      if (!dryRun && data.success) {
-        const agRes = await fetch('/api/agents');
-        const agData = await agRes.json();
-        if (agData.success) setAgents(agData.data);
-        refreshAuditLogs();
-      }
-      return data;
-    } catch (err: any) {
-      return { success: false, count: 0, errors: [err.message || 'خطا در برقراری ارتباط با سرور'] };
-    }
-  };
-
-  // 4. Rubrics & Settings
-  const updateRubricItemWeight = async (formType: DepartmentType, itemId: string, newWeight: number) => {
-    const currentSections = formType === 'support' ? supportRubric : salesRubric;
-    const updated = currentSections.map((sec) => ({
-      ...sec,
-      criteria: sec.criteria.map((crit) => ({
-        ...crit,
-        items: crit.items.map((it) => (it.id === itemId ? { ...it, maxPoints: newWeight } : it)),
-      })),
-    }));
-
-    await updateFullRubric(formType, updated);
-  };
-
   const updateFullRubric = async (
     formType: DepartmentType,
-    sections: RubricSection[]
+    sections: RubricSection[],
   ): Promise<{ success: boolean; error?: string }> => {
-    const validation = validateRubricDefinition(formType, sections);
-    if (!validation.isValid) {
-      return {
-        success: false,
-        error: validation.error,
-      };
-    }
-
+    const valid = validateRubricDefinition(formType, sections);
+    if (!valid.isValid) return { success: false, error: valid.error };
     try {
-      const res = await fetch(`/api/forms/${formType}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sections, currentUser }),
+      const r = await api(`/api/forms/${formType}`, "PUT", {
+        sections,
+        expected_version:
+          formType === "sales" ? salesFormVersion : supportFormVersion,
       });
-      const data = await res.json();
-      if (data.success) {
-        const canonical = data.canonicalRubric || sections;
-        if (formType === 'support') {
-          setSupportRubric(canonical);
-          setSupportFormVersion(data.version || supportFormVersion + 1);
-          if (data.formId) setSupportFormId(data.formId);
-        } else {
-          setSalesRubric(canonical);
-          setSalesFormVersion(data.version || salesFormVersion + 1);
-          if (data.formId) setSalesFormId(data.formId);
-        }
-        refreshAuditLogs();
-        return { success: true };
+      if (formType === "sales") {
+        setSalesRubric(r.canonicalRubric);
+        setSalesFormVersion(r.version);
+        setSalesFormId(r.formId);
       } else {
-        return { success: false, error: data.error };
+        setSupportRubric(r.canonicalRubric);
+        setSupportFormVersion(r.version);
+        setSupportFormId(r.formId);
       }
-    } catch (err: any) {
-      return { success: false, error: err.message };
+      await refreshAuditLogs();
+      return { success: true };
+    } catch (e: any) {
+      setError(e.message);
+      return { success: false, error: e.message };
     }
   };
-
-  const updateSettings = async (newSettings: Partial<PortalSettings>) => {
-    const merged = { ...settings, ...newSettings };
-    setSettings(merged);
-
-    try {
-      await fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings: merged, currentUser }),
+  const updateRubricItemWeight = async (
+    type: DepartmentType,
+    id: string,
+    weight: number,
+  ) => {
+    const sections = (type === "sales" ? salesRubric : supportRubric).map(
+      (s) => {
+        const criteria = s.criteria.map((c) => {
+          const items = c.items.map((i) =>
+            i.id === id ? { ...i, maxPoints: weight } : i,
+          );
+          return {
+            ...c,
+            items,
+            maxPoints: items.reduce((n, i) => n + i.maxPoints, 0),
+          };
+        });
+        return {
+          ...s,
+          criteria,
+          maxPoints: criteria.reduce((n, c) => n + c.maxPoints, 0),
+        };
+      },
+    );
+    const result = await updateFullRubric(type, sections);
+    if (!result.success) throw new Error(result.error);
+  };
+  const updateSettings = async (changes: Partial<PortalSettings>) =>
+    run(async () => {
+      const r = await api("/api/settings", "PUT", {
+        settings: { ...settings, ...changes },
       });
-      refreshAuditLogs();
-    } catch (err) {
-      console.error('Failed to update settings:', err);
-    }
-  };
-
-  // 5. Agents
-  const addAgent = async (newAgent: Omit<Agent, 'id'>) => {
-    try {
-      const res = await fetch('/api/agents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...newAgent, currentUser }),
-      });
-      const data = await res.json();
-      if (data.success && data.data) {
-        setAgents((prev) => [...prev, data.data]);
-        refreshAuditLogs();
-      }
-    } catch (err) {
-      console.error('Failed to add agent:', err);
-    }
-  };
-
-  const updateAgent = async (id: string, updates: Partial<Agent>) => {
-    setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, ...updates } : a)));
-
-    try {
-      const res = await fetch(`/api/agents/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...updates, currentUser }),
-      });
-      const data = await res.json();
-      if (data.success && data.data) {
-        setAgents((prev) => prev.map((a) => (a.id === id ? data.data : a)));
-        refreshAuditLogs();
-      }
-    } catch (err) {
-      console.error('Failed to update agent:', err);
-    }
-  };
-
-  // 6. Faults
-  const addFault = async (newFault: Omit<Fault, 'id'>) => {
-    try {
-      const res = await fetch('/api/faults', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...newFault, currentUser }),
-      });
-      const data = await res.json();
-      if (data.success && data.data) {
-        setFaults((prev) => [...prev, data.data]);
-        refreshAuditLogs();
-      }
-    } catch (err) {
-      console.error('Failed to add fault:', err);
-    }
-  };
-
-  const updateFault = async (id: string, updates: Partial<Fault>) => {
-    setFaults((prev) => prev.map((f) => (f.id === id ? { ...f, ...updates } : f)));
-
-    try {
-      const res = await fetch(`/api/faults/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...updates, currentUser }),
-      });
-      refreshAuditLogs();
-    } catch (err) {
-      console.error('Failed to update fault:', err);
-    }
-  };
-
-  const deleteFault = async (id: string) => {
-    setFaults((prev) => prev.filter((f) => f.id !== id));
-
-    try {
-      await fetch(`/api/faults/${id}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentUser }),
-      });
-      refreshAuditLogs();
-    } catch (err) {
-      console.error('Failed to delete fault:', err);
-    }
-  };
-
-  // 7. Problems Tracker
-  const addProblem = async (problemData: Omit<ProblemItem, 'id' | 'created_at'>) => {
-    try {
-      const res = await fetch('/api/problems', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...problemData, currentUser }),
-      });
-      const data = await res.json();
-      if (data.success && data.data) {
-        setProblems((prev) => [data.data, ...prev]);
-        refreshAuditLogs();
-      }
-    } catch (err) {
-      console.error('Failed to add problem:', err);
-    }
-  };
-
-  const updateProblem = async (id: string, updates: Partial<ProblemItem>) => {
-    setProblems((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)));
-
-    try {
-      const res = await fetch(`/api/problems/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...updates, currentUser }),
-      });
-      const data = await res.json();
-      if (data.success && data.data) {
-        setProblems((prev) => prev.map((p) => (p.id === id ? data.data : p)));
-        refreshAuditLogs();
-      }
-    } catch (err) {
-      console.error('Failed to update problem:', err);
-    }
-  };
-
-  const deleteProblem = async (id: string) => {
-    setProblems((prev) => prev.filter((p) => p.id !== id));
-
-    try {
-      await fetch(`/api/problems/${id}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentUser }),
-      });
-      refreshAuditLogs();
-    } catch (err) {
-      console.error('Failed to delete problem:', err);
-    }
-  };
-
+      setSettings(r.data);
+      await refreshAuditLogs();
+    });
+  const addAgent = async (b: Omit<Agent, "id">) =>
+    run(async () => {
+      const r = await api("/api/agents", "POST", b);
+      setAgents((p) => [...p, r.data]);
+      await refreshAuditLogs();
+    });
+  const updateAgent = async (id: string, b: Partial<Agent>) =>
+    run(async () => {
+      const fields = [
+        "source_id",
+        "name",
+        "team",
+        "department",
+        "user_id",
+        "team_lead_id",
+        "controller_id",
+        "team_lead",
+        "controller",
+        "operator_panel",
+        "sample_name",
+        "check_process",
+        "min_monthly_reviews",
+        "active",
+        "avatar",
+      ];
+      const payload = Object.fromEntries(
+        Object.entries(b).filter(([k]) => fields.includes(k)),
+      );
+      const r = await api(`/api/agents/${id}`, "PUT", payload);
+      setAgents((p) => p.map((a) => (a.id === id ? r.data : a)));
+      await refreshAuditLogs();
+    });
+  const addFault = async (b: Omit<Fault, "id">) =>
+    run(async () => {
+      const r = await api("/api/faults", "POST", b);
+      setFaults((p) => [...p, r.data]);
+      await refreshAuditLogs();
+    });
+  const updateFault = async (id: string, b: Partial<Fault>) =>
+    run(async () => {
+      const r = await api(`/api/faults/${id}`, "PUT", b);
+      setFaults((p) => p.map((a) => (a.id === id ? r.data : a)));
+      await refreshAuditLogs();
+    });
+  const deleteFault = async (id: string) =>
+    run(async () => {
+      await api(`/api/faults/${id}`, "DELETE", {});
+      setFaults((p) => p.filter((a) => a.id !== id));
+      await refreshAuditLogs();
+    });
+  const addProblem = async (b: Omit<ProblemItem, "id" | "created_at">) =>
+    run(async () => {
+      const r = await api("/api/problems", "POST", b);
+      setProblems((p) => [r.data, ...p]);
+      await refreshAuditLogs();
+    });
+  const updateProblem = async (id: string, b: Partial<ProblemItem>) =>
+    run(async () => {
+      const r = await api(`/api/problems/${id}`, "PUT", b);
+      setProblems((p) => p.map((a) => (a.id === id ? r.data : a)));
+      await refreshAuditLogs();
+    });
+  const deleteProblem = async (id: string) =>
+    run(async () => {
+      await api(`/api/problems/${id}`, "DELETE", {});
+      setProblems((p) => p.filter((a) => a.id !== id));
+      await refreshAuditLogs();
+    });
   return {
     addAssessment,
     updateAssessment,

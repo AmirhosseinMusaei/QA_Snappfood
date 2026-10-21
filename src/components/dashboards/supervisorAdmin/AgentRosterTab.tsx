@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo } from "react";
 import {
   Users,
   Search,
@@ -8,22 +8,21 @@ import {
   Edit2,
   CheckCircle2,
   AlertTriangle,
-} from 'lucide-react';
-import {
-  Agent,
-  Team,
-  DepartmentType,
-} from '../../../types/index.ts';
-import { toPersianDigits } from '../../../utils/persian.ts';
+} from "lucide-react";
+import { Agent, Team, DepartmentType } from "../../../types/index.ts";
+import { toPersianDigits } from "../../../utils/persian.ts";
 
 interface AgentRosterTabProps {
   agents: Agent[];
   teams: Team[];
-  controllers: { id: string; name: string }[];
+  controllers: { id: string; name: string; username?: string }[];
   teamLeads: { id: string; name: string }[];
-  addAgent: (agent: Omit<Agent, 'id'>) => void;
-  updateAgent: (id: string, updates: Partial<Agent>) => void;
-  importAgentsFromCsv: (csvText: string, dryRun: boolean) => Promise<{
+  addAgent: (agent: Omit<Agent, "id">) => Promise<void>;
+  updateAgent: (id: string, updates: Partial<Agent>) => Promise<void>;
+  importAgentsFromCsv: (
+    csvText: string,
+    dryRun: boolean,
+  ) => Promise<{
     success: boolean;
     count: number;
     errors: string[];
@@ -47,30 +46,35 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
   showImportModal,
   setShowImportModal,
 }) => {
-  const [agentSearch, setAgentSearch] = useState('');
-  const [filterRosterTeam, setFilterRosterTeam] = useState('all');
+  const [agentSearch, setAgentSearch] = useState("");
+  const [filterRosterTeam, setFilterRosterTeam] = useState("all");
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
 
-  const [csvText, setCsvText] = useState('');
-  const [csvResult, setCsvResult] = useState<{ success: boolean; count: number; errors: string[] } | null>(null);
+  const [csvText, setCsvText] = useState("");
+  const [csvResult, setCsvResult] = useState<{
+    success: boolean;
+    count: number;
+    errors: string[];
+  } | null>(null);
 
   // New Agent Form state
   const [agentForm, setAgentForm] = useState({
-    name: '',
-    source_id: '',
-    department: 'support' as DepartmentType,
-    team: 'Technical',
-    operator_panel: 'Ring',
-    team_lead: 'حسین جدیری',
-    controller: 'Asal',
-    sample_name: 'Support group',
-    check_process: 'if needed',
+    name: "",
+    source_id: "",
+    department: "support" as DepartmentType,
+    team: "Technical",
+    operator_panel: "Ring",
+    team_lead: "حسین جدیری",
+    controller: "Asal",
+    sample_name: "Support group",
+    check_process: "if needed",
     min_monthly_reviews: 40,
   });
 
   const filteredAgents = useMemo(() => {
     return agents.filter((ag) => {
-      if (filterRosterTeam !== 'all' && ag.team !== filterRosterTeam) return false;
+      if (filterRosterTeam !== "all" && ag.team !== filterRosterTeam)
+        return false;
       if (agentSearch.trim()) {
         const q = agentSearch.toLowerCase().trim();
         return (
@@ -84,35 +88,39 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
     });
   }, [agents, filterRosterTeam, agentSearch]);
 
-  const handleSaveNewAgent = (e: React.FormEvent) => {
+  const handleSaveNewAgent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!agentForm.name || !agentForm.source_id) return;
 
-    addAgent({
-      ...agentForm,
-      active: true,
-    });
+    try {
+      await addAgent({
+        ...agentForm,
+        active: true,
+      });
 
-    setShowAddModal(false);
-    setAgentForm({
-      name: '',
-      source_id: '',
-      department: 'support',
-      team: 'Technical',
-      operator_panel: 'Ring',
-      team_lead: 'حسین جدیری',
-      controller: 'Asal',
-      sample_name: 'Support group',
-      check_process: 'if needed',
-      min_monthly_reviews: 40,
-    });
+      setShowAddModal(false);
+      setAgentForm({
+        name: "",
+        source_id: "",
+        department: "support",
+        team: "Technical",
+        operator_panel: "Ring",
+        team_lead: "حسین جدیری",
+        controller: "Asal",
+        sample_name: "Support group",
+        check_process: "if needed",
+        min_monthly_reviews: 40,
+      });
+    } catch {}
   };
 
-  const handleSaveEditAgent = (e: React.FormEvent) => {
+  const handleSaveEditAgent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingAgent) return;
-    updateAgent(editingAgent.id, editingAgent);
-    setEditingAgent(null);
+    try {
+      await updateAgent(editingAgent.id, editingAgent);
+      setEditingAgent(null);
+    } catch {}
   };
 
   const handleImportCsv = async () => {
@@ -123,7 +131,7 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
       setTimeout(() => {
         setShowImportModal(false);
         setCsvResult(null);
-        setCsvText('');
+        setCsvText("");
       }, 1500);
     }
   };
@@ -177,7 +185,10 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60 font-sans">
             {filteredAgents.map((ag) => (
-              <tr key={ag.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-750 transition">
+              <tr
+                key={ag.id}
+                className="hover:bg-slate-50/70 dark:hover:bg-slate-750 transition"
+              >
                 <td className="py-3 px-3 font-bold text-slate-800 dark:text-slate-100">
                   {ag.name}
                 </td>
@@ -189,7 +200,7 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                 </td>
                 <td className="py-3 px-3">
                   <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 font-mono text-[11px]">
-                    {ag.operator_panel || 'Ring'}
+                    {ag.operator_panel || "Ring"}
                   </span>
                 </td>
                 <td className="py-3 px-3 text-slate-600 dark:text-slate-300">
@@ -199,11 +210,11 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                   {ag.controller}
                 </td>
                 <td className="py-3 px-3 text-slate-500">
-                  {ag.sample_name || 'Random'}
+                  {ag.sample_name || "Random"}
                 </td>
                 <td className="py-3 px-3">
                   <span className="text-[11px] px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300">
-                    {ag.check_process || 'if needed'}
+                    {ag.check_process || "if needed"}
                   </span>
                 </td>
                 <td className="py-3 px-3 font-mono font-bold text-slate-700 dark:text-slate-300">
@@ -212,14 +223,16 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                 <td className="py-3 px-3">
                   <button
                     type="button"
-                    onClick={() => updateAgent(ag.id, { active: !ag.active })}
+                    onClick={() =>
+                      updateAgent(ag.id, { active: !ag.active }).catch(() => {})
+                    }
                     className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                       ag.active
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                        : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-400'
+                        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                        : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-400"
                     }`}
                   >
-                    {ag.active ? 'فعال' : 'غیرفعال'}
+                    {ag.active ? "فعال" : "غیرفعال"}
                   </button>
                 </td>
                 <td className="py-3 px-3 text-left">
@@ -267,7 +280,9 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                     required
                     placeholder="مثال: پرهام سلطانی"
                     value={agentForm.name}
-                    onChange={(e) => setAgentForm({ ...agentForm, name: e.target.value })}
+                    onChange={(e) =>
+                      setAgentForm({ ...agentForm, name: e.target.value })
+                    }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
                   />
                 </div>
@@ -280,7 +295,9 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                     required
                     placeholder="مثال: 7299"
                     value={agentForm.source_id}
-                    onChange={(e) => setAgentForm({ ...agentForm, source_id: e.target.value })}
+                    onChange={(e) =>
+                      setAgentForm({ ...agentForm, source_id: e.target.value })
+                    }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 font-mono"
                   />
                 </div>
@@ -293,7 +310,15 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                   </label>
                   <select
                     value={agentForm.team}
-                    onChange={(e) => setAgentForm({ ...agentForm, team: e.target.value })}
+                    onChange={(e) =>
+                      setAgentForm({
+                        ...agentForm,
+                        team: e.target.value,
+                        department:
+                          teams.find((t) => t.name === e.target.value)
+                            ?.department || agentForm.department,
+                      })
+                    }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
                   >
                     {teams.map((t) => (
@@ -310,7 +335,10 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                   <select
                     value={agentForm.department}
                     onChange={(e) =>
-                      setAgentForm({ ...agentForm, department: e.target.value as DepartmentType })
+                      setAgentForm({
+                        ...agentForm,
+                        department: e.target.value as DepartmentType,
+                      })
                     }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
                   >
@@ -327,7 +355,9 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                   </label>
                   <select
                     value={agentForm.team_lead}
-                    onChange={(e) => setAgentForm({ ...agentForm, team_lead: e.target.value })}
+                    onChange={(e) =>
+                      setAgentForm({ ...agentForm, team_lead: e.target.value })
+                    }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
                   >
                     {teamLeads.map((tl) => (
@@ -343,11 +373,13 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                   </label>
                   <select
                     value={agentForm.controller}
-                    onChange={(e) => setAgentForm({ ...agentForm, controller: e.target.value })}
+                    onChange={(e) =>
+                      setAgentForm({ ...agentForm, controller: e.target.value })
+                    }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
                   >
                     {controllers.map((c) => (
-                      <option key={c.id} value={c.name}>
+                      <option key={c.id} value={(c as any).username || c.name}>
                         {c.name}
                       </option>
                     ))}
@@ -363,7 +395,12 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                   <input
                     type="text"
                     value={agentForm.operator_panel}
-                    onChange={(e) => setAgentForm({ ...agentForm, operator_panel: e.target.value })}
+                    onChange={(e) =>
+                      setAgentForm({
+                        ...agentForm,
+                        operator_panel: e.target.value,
+                      })
+                    }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 font-mono"
                   />
                 </div>
@@ -374,7 +411,12 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                   <input
                     type="text"
                     value={agentForm.check_process}
-                    onChange={(e) => setAgentForm({ ...agentForm, check_process: e.target.value })}
+                    onChange={(e) =>
+                      setAgentForm({
+                        ...agentForm,
+                        check_process: e.target.value,
+                      })
+                    }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
                   />
                 </div>
@@ -386,7 +428,10 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                     type="number"
                     value={agentForm.min_monthly_reviews}
                     onChange={(e) =>
-                      setAgentForm({ ...agentForm, min_monthly_reviews: Number(e.target.value) || 40 })
+                      setAgentForm({
+                        ...agentForm,
+                        min_monthly_reviews: Number(e.target.value) || 40,
+                      })
                     }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 font-mono"
                   />
@@ -441,7 +486,9 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                     type="text"
                     required
                     value={editingAgent.name}
-                    onChange={(e) => setEditingAgent({ ...editingAgent, name: e.target.value })}
+                    onChange={(e) =>
+                      setEditingAgent({ ...editingAgent, name: e.target.value })
+                    }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 font-medium"
                   />
                 </div>
@@ -453,7 +500,12 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                     type="text"
                     required
                     value={editingAgent.source_id}
-                    onChange={(e) => setEditingAgent({ ...editingAgent, source_id: e.target.value })}
+                    onChange={(e) =>
+                      setEditingAgent({
+                        ...editingAgent,
+                        source_id: e.target.value,
+                      })
+                    }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 font-mono"
                   />
                 </div>
@@ -466,7 +518,9 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                   </label>
                   <select
                     value={editingAgent.team}
-                    onChange={(e) => setEditingAgent({ ...editingAgent, team: e.target.value })}
+                    onChange={(e) =>
+                      setEditingAgent({ ...editingAgent, team: e.target.value })
+                    }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
                   >
                     {teams.map((t) => (
@@ -482,11 +536,16 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                   </label>
                   <select
                     value={editingAgent.controller}
-                    onChange={(e) => setEditingAgent({ ...editingAgent, controller: e.target.value })}
+                    onChange={(e) =>
+                      setEditingAgent({
+                        ...editingAgent,
+                        controller: e.target.value,
+                      })
+                    }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
                   >
                     {controllers.map((c) => (
-                      <option key={c.id} value={c.name}>
+                      <option key={c.id} value={(c as any).username || c.name}>
                         {c.name}
                       </option>
                     ))}
@@ -501,7 +560,12 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                   </label>
                   <select
                     value={editingAgent.team_lead}
-                    onChange={(e) => setEditingAgent({ ...editingAgent, team_lead: e.target.value })}
+                    onChange={(e) =>
+                      setEditingAgent({
+                        ...editingAgent,
+                        team_lead: e.target.value,
+                      })
+                    }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
                   >
                     {teamLeads.map((tl) => (
@@ -556,7 +620,9 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700">
               <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Upload className="w-4 h-4 text-sky-600" />
-                <span>بارگذاری و ایمپورت گروهی لیست کارشناسان (CSV Import)</span>
+                <span>
+                  بارگذاری و ایمپورت گروهی لیست کارشناسان (CSV Import)
+                </span>
               </h3>
               <button
                 type="button"
@@ -574,8 +640,8 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
               ستون‌های مجاز فایل CSV:
               <br />
               <code className="text-sky-600 font-mono bg-sky-50 dark:bg-sky-950/60 px-1.5 py-0.5 rounded">
-                name, source_id, department, team, operator_panel, team_lead, controller,
-                sample_name, check_process, min_monthly_reviews
+                name, source_id, department, team, operator_panel, team_lead,
+                controller, sample_name, check_process, min_monthly_reviews
               </code>
             </p>
 
@@ -591,8 +657,8 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
               <div
                 className={`p-3 rounded-xl border text-xs font-semibold ${
                   csvResult.success
-                    ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 text-emerald-800 dark:text-emerald-300'
-                    : 'bg-rose-50 dark:bg-rose-950/60 border-rose-300 text-rose-800 dark:text-rose-300'
+                    ? "bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 text-emerald-800 dark:text-emerald-300"
+                    : "bg-rose-50 dark:bg-rose-950/60 border-rose-300 text-rose-800 dark:text-rose-300"
                 }`}
               >
                 <div className="flex items-center gap-2 font-bold mb-1">
@@ -604,7 +670,7 @@ export const AgentRosterTab: React.FC<AgentRosterTabProps> = ({
                   <span>
                     {csvResult.success
                       ? `${toPersianDigits(csvResult.count)} کارشناس با موفقیت اضافه یا بروزرسانی شدند.`
-                      : 'خطا در بارگذاری کارشناسان:'}
+                      : "خطا در بارگذاری کارشناسان:"}
                   </span>
                 </div>
                 {csvResult.errors.length > 0 && (

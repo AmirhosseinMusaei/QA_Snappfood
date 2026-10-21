@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import { api } from "../utils/api.ts";
+import { ScoreCorrectionEditor } from "./ScoreCorrectionEditor.tsx";
+import React, { useState, useEffect } from "react";
 import {
   X,
   ExternalLink,
@@ -16,12 +18,17 @@ import {
   CheckSquare,
   ShieldCheck,
   Edit3,
-} from 'lucide-react';
-import { Assessment, RubricSection } from '../types/index.ts';
-import { toPersianDigits, formatScoreBadge, isWithinDisputeWindow } from '../utils/persian.ts';
-import { AudioWaveformPlayer } from './AudioWaveformPlayer.tsx';
-import { useApp } from '../context/AppContext.tsx';
-import { DisputeModal } from './disputes/DisputeModal.tsx';
+} from "lucide-react";
+import { Assessment, RubricSection } from "../types/index.ts";
+import {
+  toPersianDigits,
+  formatScoreBadge,
+  isWithinDisputeWindow,
+  formatJalaliDate,
+} from "../utils/persian.ts";
+import { AudioWaveformPlayer } from "./AudioWaveformPlayer.tsx";
+import { useApp } from "../context/AppContext.tsx";
+import { DisputeModal } from "./disputes/DisputeModal.tsx";
 
 interface AuditDetailModalProps {
   assessment: Assessment;
@@ -35,6 +42,7 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
   const {
     assessments,
     agents,
+    settings,
     role,
     resolveDispute,
     supportRubric,
@@ -48,28 +56,66 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
   const assessment =
     assessments.find((a) => a.id === initialAssessment.id) || initialAssessment;
 
+  const [history, setHistory] = useState<any[]>([]),
+    [historyPage, setHistoryPage] = useState(1),
+    [historyPages, setHistoryPages] = useState(1);
+  useEffect(() => {
+    let active = true;
+    api(`/api/assessments/${assessment.id}/history?page=${historyPage}`)
+      .then((r) => {
+        if (active) {
+          setHistory(r.data);
+          setHistoryPages(r.total_pages);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [assessment.id, assessment.revision, historyPage]);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
-  const [disputeCriterionId, setDisputeCriterionId] = useState<string | undefined>(undefined);
+  const [disputeCriterionId, setDisputeCriterionId] = useState<
+    string | undefined
+  >(undefined);
 
   // Team Lead review inputs
-  const [teamLeadNoteInput, setTeamLeadNoteInput] = useState(assessment.team_lead_note || '');
+  const [teamLeadNoteInput, setTeamLeadNoteInput] = useState(
+    assessment.team_lead_note || "",
+  );
   const [isEditingNote, setIsEditingNote] = useState(false);
-  const [noteValidationError, setNoteValidationError] = useState<string | null>(null);
-  const [reviewSuccessMessage, setReviewSuccessMessage] = useState<string | null>(null);
+  const [noteValidationError, setNoteValidationError] = useState<string | null>(
+    null,
+  );
+  const [reviewSuccessMessage, setReviewSuccessMessage] = useState<
+    string | null
+  >(null);
 
   // Dispute resolution states (for QA Controller / Admin)
-  const [resolutionComment, setResolutionComment] = useState('');
-  const [revisedScoreInput, setRevisedScoreInput] = useState<number>(assessment.total_score);
+  const [resolutionComment, setResolutionComment] = useState("");
+  const [revisedScoreInput, setRevisedScoreInput] = useState<
+    Record<string, number>
+  >({});
 
   const agent = agents.find((a) => a.id === assessment.agent_id);
-  const scoreBadge = formatScoreBadge(assessment.total_score);
-  const canDispute = isWithinDisputeWindow(assessment.check_date) && !assessment.dispute;
+  const scoreBadge = formatScoreBadge(assessment.total_score, {
+    high: settings.high_quality_threshold,
+    low: settings.low_quality_threshold,
+  });
+  const canDispute =
+    role === "agent" &&
+    !assessment.legacy_aggregate &&
+    isWithinDisputeWindow(
+      assessment.created_at,
+      settings.dispute_window_days,
+    ) &&
+    !assessment.dispute;
 
-  const rubric: RubricSection[] =
-    assessment.form_type === 'support' ? supportRubric : salesRubric;
+  const rubric: RubricSection[] = assessment.legacy_aggregate
+    ? []
+    : assessment.rubric || [];
 
   const scoreMap =
-    assessment.form_type === 'support'
+    assessment.form_type === "support"
       ? assessment.support_scores || {}
       : assessment.sales_scores || {};
 
@@ -78,25 +124,30 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
     : null;
 
   const isNeedToCheck =
-    (assessment.result === 'Need to check' || (assessment.result as string) === 'need_to_check') &&
+    (assessment.result === "Need to check" ||
+      (assessment.result as string) === "need_to_check") &&
     !assessment.team_lead_reviewed;
 
   const isReviewed =
-    assessment.result === 'بررسی شده' || Boolean(assessment.team_lead_reviewed);
+    assessment.result === "بررسی شده" || Boolean(assessment.team_lead_reviewed);
 
   // Handle Team Lead review submission
-  const handleTeamLeadSubmit = (e?: React.FormEvent) => {
+  const handleTeamLeadSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!teamLeadNoteInput.trim()) {
-      setNoteValidationError('لطفاً بازخورد و یادداشت بررسی خود را وارد کنید.');
+      setNoteValidationError("لطفاً بازخورد و یادداشت بررسی خود را وارد کنید.");
       return;
     }
 
     setNoteValidationError(null);
-    markTeamLeadReviewed(assessment.id, teamLeadNoteInput.trim());
-    setIsEditingNote(false);
-    setReviewSuccessMessage('وضعیت ارزیابی با موفقیت به "بررسی شده" تغییر یافت و یادداشت سرپرست ثبت شد.');
-    setTimeout(() => setReviewSuccessMessage(null), 4000);
+    try {
+      await markTeamLeadReviewed(assessment.id, teamLeadNoteInput.trim());
+      setIsEditingNote(false);
+      setReviewSuccessMessage(
+        'وضعیت ارزیابی با موفقیت به "بررسی شده" تغییر یافت و یادداشت سرپرست ثبت شد.',
+      );
+      setTimeout(() => setReviewSuccessMessage(null), 4000);
+    } catch {}
   };
 
   // Open dispute for specific criterion
@@ -105,14 +156,17 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
     setShowDisputeModal(true);
   };
 
-  const handleResolve = (status: 'resolved' | 'rejected') => {
+  const handleResolve = async (status: "accepted" | "rejected") => {
     if (!resolutionComment.trim()) return;
-    resolveDispute(
-      assessment.id,
-      status,
-      resolutionComment.trim(),
-      status === 'resolved' ? revisedScoreInput : undefined
-    );
+    try {
+      await resolveDispute(
+        assessment.id,
+        status,
+        resolutionComment.trim(),
+        status === "accepted" ? revisedScoreInput : undefined,
+        { revision: assessment.revision, disputeId: assessment.dispute?.id },
+      );
+    } catch {}
   };
 
   return (
@@ -133,9 +187,11 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                     ارزیابی {assessment.id}
                   </h3>
                   <span className="text-[11px] px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium">
-                    {assessment.form_type === 'support' ? 'پشتیبانی تجاری' : 'فروش و بازاریابی'}
+                    {assessment.form_type === "support"
+                      ? "پشتیبانی تجاری"
+                      : "فروش و بازاریابی"}
                   </span>
-                  {assessment.result === 'Need to check' && (
+                  {assessment.result === "Need to check" && (
                     <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500 text-white font-bold">
                       نیازمند بررسی لید
                     </span>
@@ -158,8 +214,8 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                   )}
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  تاریخ بررسی: {toPersianDigits(assessment.check_date)} · کنترلر:{' '}
-                  {assessment.controller_id}
+                  تاریخ بررسی: {formatJalaliDate(assessment.check_date)} ·
+                  کنترلر: {assessment.controller_id}
                 </p>
               </div>
             </div>
@@ -204,13 +260,17 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
             {/* Metadata Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800">
-                <span className="text-[11px] text-slate-400 block">نام کارشناس:</span>
+                <span className="text-[11px] text-slate-400 block">
+                  نام کارشناس:
+                </span>
                 <span className="font-bold text-slate-800 dark:text-slate-200">
-                  {agent?.name || 'نامشخص'}
+                  {agent?.name || "نامشخص"}
                 </span>
               </div>
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800">
-                <span className="text-[11px] text-slate-400 block">کد سورس:</span>
+                <span className="text-[11px] text-slate-400 block">
+                  کد سورس:
+                </span>
                 <span className="font-mono font-bold text-sky-600 dark:text-sky-400">
                   {toPersianDigits(agent?.source_id)}
                 </span>
@@ -222,7 +282,9 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                 </span>
               </div>
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800">
-                <span className="text-[11px] text-slate-400 block">سرپرست تیم:</span>
+                <span className="text-[11px] text-slate-400 block">
+                  سرپرست تیم:
+                </span>
                 <span className="font-semibold text-slate-800 dark:text-slate-200">
                   {agent?.team_lead}
                 </span>
@@ -230,12 +292,16 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
             </div>
 
             {/* TEAM LEAD REVIEW SECTION (Interactive & Actionable) */}
-            {(isNeedToCheck || isReviewed || role === 'team_lead' || role === 'qa_supervisor' || role === 'admin') && (
+            {(isNeedToCheck ||
+              isReviewed ||
+              role === "team_lead" ||
+              role === "qa_supervisor" ||
+              role === "admin") && (
               <div
                 className={`p-4 rounded-2xl border transition-all ${
                   isReviewed
-                    ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/80 text-emerald-950 dark:text-emerald-100'
-                    : 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-950 dark:text-amber-100'
+                    ? "bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/80 text-emerald-950 dark:text-emerald-100"
+                    : "bg-amber-50/70 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-950 dark:text-amber-100"
                 }`}
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
@@ -251,8 +317,8 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                       </h4>
                       <p className="text-[11px] opacity-80">
                         {isReviewed
-                          ? 'این ارزیابی توسط سرپرست تیم بررسی شده و یادداشت نظارتی ثبت شده است.'
-                          : 'این ارزیابی علامت نیازمند بررسی دارد. سرپرست تیم می‌تواند با ثبت یادداشت وضعیت را به «بررسی شده» تغییر دهد.'}
+                          ? "این ارزیابی توسط سرپرست تیم بررسی شده و یادداشت نظارتی ثبت شده است."
+                          : "این ارزیابی علامت نیازمند بررسی دارد. سرپرست تیم می‌تواند با ثبت یادداشت وضعیت را به «بررسی شده» تغییر دهد."}
                       </p>
                     </div>
                   </div>
@@ -261,28 +327,37 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                     <span
                       className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${
                         isReviewed
-                          ? 'bg-emerald-600 text-white'
-                          : 'bg-amber-500 text-white'
+                          ? "bg-emerald-600 text-white"
+                          : "bg-amber-500 text-white"
                       }`}
                     >
-                      {isReviewed ? '✓ وضعیت: بررسی شده' : 'وضعیت: نیازمند بررسی'}
+                      {isReviewed
+                        ? "✓ وضعیت: بررسی شده"
+                        : "وضعیت: نیازمند بررسی"}
                     </span>
-                    {isReviewed && !isEditingNote && (role === 'team_lead' || role === 'qa_supervisor' || role === 'admin') && (
-                      <button
-                        type="button"
-                        onClick={() => setIsEditingNote(true)}
-                        className="flex items-center gap-1 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 hover:underline"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                        <span>ویرایش یادداشت</span>
-                      </button>
-                    )}
+                    {isReviewed &&
+                      !isEditingNote &&
+                      (role === "team_lead" ||
+                        role === "qa_supervisor" ||
+                        role === "admin") && (
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingNote(true)}
+                          className="flex items-center gap-1 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 hover:underline"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>ویرایش یادداشت</span>
+                        </button>
+                      )}
                   </div>
                 </div>
 
                 {/* Show review note or input box */}
                 {!isReviewed || isEditingNote ? (
-                  <form onSubmit={handleTeamLeadSubmit} className="space-y-3 pt-2">
+                  <form
+                    onSubmit={handleTeamLeadSubmit}
+                    className="space-y-3 pt-2"
+                  >
                     <div>
                       <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block mb-1">
                         یادداشت و نتیجه بررسی سرپرست تیم:
@@ -297,7 +372,9 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                           if (noteValidationError) setNoteValidationError(null);
                         }}
                         className={`w-full p-2.5 rounded-xl border ${
-                          noteValidationError ? 'border-rose-500 ring-1 ring-rose-500' : 'border-slate-300 dark:border-slate-600'
+                          noteValidationError
+                            ? "border-rose-500 ring-1 ring-rose-500"
+                            : "border-slate-300 dark:border-slate-600"
                         } bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-xs leading-relaxed focus:outline-none focus:border-indigo-500 shadow-2xs`}
                       />
                       {noteValidationError && (
@@ -313,7 +390,9 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                           type="button"
                           onClick={() => {
                             setIsEditingNote(false);
-                            setTeamLeadNoteInput(assessment.team_lead_note || '');
+                            setTeamLeadNoteInput(
+                              assessment.team_lead_note || "",
+                            );
                           }}
                           className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 text-xs font-semibold"
                         >
@@ -332,10 +411,14 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                 ) : (
                   <div className="p-3 rounded-xl bg-white/80 dark:bg-slate-800/80 border border-emerald-100 dark:border-emerald-900/50 space-y-1">
                     <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                      <span>یادداشت ثبت‌شده توسط سرپرست تیم ({agent?.team_lead || 'سرپرست'}):</span>
+                      <span>
+                        یادداشت ثبت‌شده توسط سرپرست تیم (
+                        {agent?.team_lead || "سرپرست"}):
+                      </span>
                       {assessment.team_lead_reviewed_at && (
                         <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">
-                          تاریخ بررسی: {toPersianDigits(assessment.team_lead_reviewed_at)}
+                          تاریخ بررسی:{" "}
+                          {toPersianDigits(assessment.team_lead_reviewed_at)}
                         </span>
                       )}
                     </div>
@@ -353,8 +436,8 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                 <div className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                   <Store className="w-4 h-4 text-sky-600" />
                   <span>
-                    {assessment.vendor_title || `وندور ${assessment.vendor_id}`} (شناسه:{' '}
-                    {toPersianDigits(assessment.vendor_id)})
+                    {assessment.vendor_title || `وندور ${assessment.vendor_id}`}{" "}
+                    (شناسه: {toPersianDigits(assessment.vendor_id)})
                   </span>
                 </div>
 
@@ -374,22 +457,34 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-slate-600 dark:text-slate-300">
                 {assessment.ticket_number && (
                   <div>
-                    <span className="text-[11px] text-slate-400 block">شماره تیکت:</span>
-                    <span className="font-mono font-bold">{assessment.ticket_number}</span>
+                    <span className="text-[11px] text-slate-400 block">
+                      شماره تیکت:
+                    </span>
+                    <span className="font-mono font-bold">
+                      {assessment.ticket_number}
+                    </span>
                   </div>
                 )}
                 {assessment.phone_number && (
                   <div>
-                    <span className="text-[11px] text-slate-400 block">شماره تماس:</span>
-                    <span className="font-mono">{toPersianDigits(assessment.phone_number)}</span>
+                    <span className="text-[11px] text-slate-400 block">
+                      شماره تماس:
+                    </span>
+                    <span className="font-mono">
+                      {toPersianDigits(assessment.phone_number)}
+                    </span>
                   </div>
                 )}
                 <div>
-                  <span className="text-[11px] text-slate-400 block">نوع سمپل:</span>
+                  <span className="text-[11px] text-slate-400 block">
+                    نوع سمپل:
+                  </span>
                   <span>{assessment.sample_name}</span>
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-400 block">نتیجه ارزیابی:</span>
+                  <span className="text-[11px] text-slate-400 block">
+                    نتیجه ارزیابی:
+                  </span>
                   <span className="font-semibold text-slate-900 dark:text-white">
                     {assessment.result}
                   </span>
@@ -411,7 +506,7 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
               <AudioWaveformPlayer
                 url={
                   assessment.voice_link ||
-                  'https://actions.google.com/sounds/v1/telephones/telephone_ring.ogg'
+                  "https://actions.google.com/sounds/v1/telephones/telephone_ring.ogg"
                 }
                 ticketOrId={assessment.ticket_number || assessment.phone_number}
               />
@@ -422,13 +517,46 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
                 <h4 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
                   <FileText className="w-4 h-4 text-sky-600" />
-                  <span>ریز نمرات و چک‌لیست رابریک (کسر نمرات با رنگ قرمز مشخص شده است)</span>
+                  <span>
+                    ریز نمرات و چک‌لیست رابریک (کسر نمرات با رنگ قرمز مشخص شده
+                    است)
+                  </span>
                 </h4>
                 <span className="text-[11px] text-slate-400">
                   جهت ثبت اعتراض می‌توانید مستقیماً روی معیار مربوطه کلیک کنید
                 </span>
               </div>
 
+              {(assessment.legacy_aggregate || !rubric.length) && (
+                <p className="text-amber-600 p-4">
+                  جزئیات معیارهای این رکورد تاریخی موجود نیست و به‌عنوان امتیاز
+                  کامل فرض نمی‌شود.
+                </p>
+              )}
+              <section className="rounded-xl border dark:border-slate-700 p-3">
+                <h3 className="font-bold mb-2">تاریخچه تغییرات این ارزیابی</h3>
+                {history.map((h) => (
+                  <p className="text-xs break-words py-1" key={h.id}>
+                    {h.user_name} — {h.field}: {h.old_value} ← {h.new_value}
+                  </p>
+                ))}
+                <button
+                  disabled={historyPage <= 1}
+                  onClick={() => setHistoryPage((p) => p - 1)}
+                >
+                  قبلی
+                </button>
+                <span>
+                  {" "}
+                  {historyPage} / {historyPages}{" "}
+                </span>
+                <button
+                  disabled={historyPage >= historyPages}
+                  onClick={() => setHistoryPage((p) => p + 1)}
+                >
+                  بعدی
+                </button>
+              </section>
               {rubric.map((section) => (
                 <div
                   key={section.id}
@@ -456,6 +584,10 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                         {/* Sub items list */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                           {criterion.items.map((item) => {
+                            if (scoreMap[item.id] === undefined)
+                              return (
+                                <p key={item.id}>{item.title}: نمره ثبت نشده</p>
+                              );
                             const awarded =
                               scoreMap[item.id] !== undefined
                                 ? scoreMap[item.id]
@@ -468,8 +600,8 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                                 key={item.id}
                                 className={`p-2.5 rounded-xl border flex items-center justify-between transition ${
                                   isDeducted
-                                    ? 'bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60 text-rose-900 dark:text-rose-200 shadow-2xs'
-                                    : 'bg-slate-50/60 dark:bg-slate-900/40 border-slate-200/60 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'
+                                    ? "bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60 text-rose-900 dark:text-rose-200 shadow-2xs"
+                                    : "bg-slate-50/60 dark:bg-slate-900/40 border-slate-200/60 dark:border-slate-700/60 text-slate-700 dark:text-slate-300"
                                 }`}
                               >
                                 <div className="flex items-center gap-2">
@@ -495,7 +627,8 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                                       </span>
                                     ) : (
                                       <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                                        {toPersianDigits(item.maxPoints)} / {toPersianDigits(item.maxPoints)}
+                                        {toPersianDigits(item.maxPoints)} /{" "}
+                                        {toPersianDigits(item.maxPoints)}
                                       </span>
                                     )}
                                   </div>
@@ -504,7 +637,9 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                                   {isDeducted && canDispute && (
                                     <button
                                       type="button"
-                                      onClick={() => handleOpenCriterionDispute(item.id)}
+                                      onClick={() =>
+                                        handleOpenCriterionDispute(item.id)
+                                      }
                                       className="px-2 py-0.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold transition shadow-2xs"
                                       title="ثبت اعتراض دقیق به این معیار"
                                     >
@@ -523,14 +658,15 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
               ))}
 
               {/* Sales Mistakes Deductions */}
-              {assessment.form_type === 'sales' && (
+              {assessment.form_type === "sales" && (
                 <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
                   <div>
                     <span className="font-bold text-slate-800 dark:text-slate-100 block">
                       خطاهای انضباط مکالمه و سکوت (Sales Mistakes)
                     </span>
                     <span className="text-[11px] text-slate-400">
-                      تعداد خطاهای ثبت‌شده: {toPersianDigits(assessment.mistake_count || 0)} مورد
+                      تعداد خطاهای ثبت‌شده:{" "}
+                      {toPersianDigits(assessment.mistake_count || 0)} مورد
                     </span>
                   </div>
                   <div className="font-mono font-bold">
@@ -565,32 +701,36 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
 
                 <div className="p-3 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
                   <strong className="block text-[11px] text-slate-400 mb-1">
-                    معیار مورد اعتراض: {assessment.dispute.criterion_title || 'ارزیابی'}
+                    معیار مورد اعتراض:{" "}
+                    {assessment.dispute.criterion_title || "ارزیابی"}
                   </strong>
-                  <p className="text-xs leading-relaxed">{assessment.dispute.agent_comment}</p>
+                  <p className="text-xs leading-relaxed">
+                    {assessment.dispute.agent_comment}
+                  </p>
                 </div>
 
-                {assessment.dispute.status !== 'pending' ? (
+                {!["open", "in_review"].includes(assessment.dispute.status) ? (
                   <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200">
                     <div className="font-bold mb-1">
-                      وضعیت:{' '}
-                      {assessment.dispute.status === 'resolved'
-                        ? 'پذیرفته و نمره اصلاح شد'
-                        : 'رد اعتراض'}
+                      وضعیت:{" "}
+                      {assessment.dispute.status === "accepted"
+                        ? "پذیرفته و نمره اصلاح شد"
+                        : "رد اعتراض"}
                       {assessment.dispute.revised_score !== undefined && (
                         <span className="font-mono mr-2">
-                          (نمره نهایی: {toPersianDigits(assessment.dispute.revised_score)})
+                          (نمره نهایی:{" "}
+                          {toPersianDigits(assessment.dispute.revised_score)})
                         </span>
                       )}
                     </div>
                     <div className="text-[11px]">
-                      پاسخ کنترلر ({assessment.dispute.controller_id}):{' '}
+                      پاسخ کنترلر ({assessment.dispute.controller_id}):{" "}
                       {assessment.dispute.controller_comment}
                     </div>
                   </div>
                 ) : (
                   /* QA Controller Resolution Box */
-                  (role === 'qa_controller' || role === 'qa_supervisor' || role === 'admin') && (
+                  (role === "qa_controller" || role === "qa_supervisor") && (
                     <div className="pt-2 border-t border-sky-200 dark:border-sky-800 space-y-3">
                       <div className="font-bold text-slate-800 dark:text-slate-200">
                         پاسخ و تعیین تکلیف اعتراض (QA Controller Action):
@@ -601,13 +741,11 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                           <label className="text-[11px] text-slate-500 block mb-1">
                             نمره جدید پس از بازشنوایی:
                           </label>
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            value={revisedScoreInput}
-                            onChange={(e) => setRevisedScoreInput(Number(e.target.value))}
-                            className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 font-mono"
+                          <ScoreCorrectionEditor
+                            assessment={assessment}
+                            criterionId={assessment.dispute?.criterion_id}
+                            scores={revisedScoreInput}
+                            onChange={setRevisedScoreInput}
                           />
                         </div>
                         <div>
@@ -618,7 +756,9 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                             type="text"
                             placeholder="دلیل پذیرش یا رد اعتراض..."
                             value={resolutionComment}
-                            onChange={(e) => setResolutionComment(e.target.value)}
+                            onChange={(e) =>
+                              setResolutionComment(e.target.value)
+                            }
                             className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100"
                           />
                         </div>
@@ -627,7 +767,7 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
                       <div className="flex items-center justify-end gap-2">
                         <button
                           type="button"
-                          onClick={() => handleResolve('rejected')}
+                          onClick={() => handleResolve("rejected")}
                           className="px-3 py-1.5 rounded-lg border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 hover:bg-rose-50 text-xs font-semibold"
                         >
                           رد اعتراض (حفظ نمره قبلی)
@@ -635,7 +775,7 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => handleResolve('resolved')}
+                          onClick={() => handleResolve("accepted")}
                           className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm"
                         >
                           پذیرش اعتراض و ثبت نمره جدید
