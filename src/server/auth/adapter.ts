@@ -1,11 +1,44 @@
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import { PrismaClient } from '@prisma/client';
-import { AuthAdapter, AuthCredentials, AuthUser } from './types.ts';
-import { UserRole, DepartmentType } from '../../types/index.ts';
+import type { PrismaClient } from '@prisma/client';
+import type { AuthAdapter, AuthCredentials, AuthUser } from './types.ts';
+import type { UserRole, DepartmentType } from '../../types/index.ts';
 
-const SESSION_SECRET = process.env.SESSION_SECRET || 'snappfood-qa-secure-auth-secret-key-2024';
+export const KNOWN_DEFAULT_SESSION_SECRET = 'snappfood-qa-secure-auth-secret-key-2024';
+export const KNOWN_DEFAULT_COOKIE_SECRET = 'snappfood-qa-session-cookie-secret-2024';
+
+const generatedRuntimeSecret = crypto.randomBytes(32).toString('hex');
+
+export const SESSION_SECRET =
+  process.env.SESSION_SECRET && process.env.SESSION_SECRET !== KNOWN_DEFAULT_SESSION_SECRET
+    ? process.env.SESSION_SECRET
+    : process.env.NODE_ENV === 'production'
+    ? generatedRuntimeSecret
+    : KNOWN_DEFAULT_SESSION_SECRET;
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// In-memory revocation registry to ensure destroyed sessions cannot be replayed
+const revokedTokens = new Set<string>();
+
+/**
+ * Validates security configuration in production
+ */
+export function validateProductionSecrets(cookieSecret: string) {
+  if (process.env.NODE_ENV === 'production') {
+    if (process.env.STRICT_SECRET_FAIL === 'true') {
+      if (
+        !process.env.SESSION_SECRET ||
+        process.env.SESSION_SECRET === KNOWN_DEFAULT_SESSION_SECRET ||
+        !cookieSecret ||
+        cookieSecret === KNOWN_DEFAULT_COOKIE_SECRET
+      ) {
+        throw new Error(
+          'FATAL: Insecure or default SESSION_SECRET / COOKIE_SECRET detected in production environment. Refusing to start.'
+        );
+      }
+    }
+  }
+}
 
 /**
  * Sign a payload with HMAC SHA256
@@ -33,6 +66,7 @@ export class LocalDatabaseAuthAdapter implements AuthAdapter {
       where: { username },
       include: {
         agent_profile: true,
+        managed_teams: true,
       },
     });
 
@@ -47,8 +81,9 @@ export class LocalDatabaseAuthAdapter implements AuthAdapter {
       username: user.username,
       name: user.name,
       role: user.role as UserRole,
-      department: user.department as DepartmentType | null,
-      team: user.team,
+      department: (user.department || user.agent_profile?.department) as DepartmentType | null,
+      team: user.team || user.agent_profile?.team_name || null,
+      team_id: user.agent_profile?.team_id || user.managed_teams?.[0]?.id || null,
       agent_id: user.agent_profile?.id || null,
       active: user.active,
     };
@@ -57,7 +92,10 @@ export class LocalDatabaseAuthAdapter implements AuthAdapter {
   async getUserById(id: string): Promise<AuthUser | null> {
     const user = await this.prisma.user.findUnique({
       where: { id },
-      include: { agent_profile: true },
+      include: {
+        agent_profile: true,
+        managed_teams: true,
+      },
     });
     if (!user || !user.active) return null;
 
@@ -66,8 +104,9 @@ export class LocalDatabaseAuthAdapter implements AuthAdapter {
       username: user.username,
       name: user.name,
       role: user.role as UserRole,
-      department: user.department as DepartmentType | null,
-      team: user.team,
+      department: (user.department || user.agent_profile?.department) as DepartmentType | null,
+      team: user.team || user.agent_profile?.team_name || null,
+      team_id: user.agent_profile?.team_id || user.managed_teams?.[0]?.id || null,
       agent_id: user.agent_profile?.id || null,
       active: user.active,
     };
@@ -75,7 +114,7 @@ export class LocalDatabaseAuthAdapter implements AuthAdapter {
 
   async createSession(user: AuthUser): Promise<string> {
     const expires = Date.now() + SESSION_TTL_MS;
-    const randomNonce = crypto.randomBytes(8).toString('hex');
+    const randomNonce = crypto.randomBytes(16).toString('hex');
     const raw = `${user.id}:${expires}:${randomNonce}`;
     const sig = signPayload(raw);
     const token = Buffer.from(`${raw}:${sig}`).toString('base64url');
@@ -84,6 +123,11 @@ export class LocalDatabaseAuthAdapter implements AuthAdapter {
 
   async validateSession(sessionToken: string): Promise<AuthUser | null> {
     if (!sessionToken) return null;
+
+    // Reject revoked tokens immediately
+    if (revokedTokens.has(sessionToken)) {
+      return null;
+    }
 
     try {
       const decoded = Buffer.from(sessionToken, 'base64url').toString('utf8');
@@ -104,19 +148,20 @@ export class LocalDatabaseAuthAdapter implements AuthAdapter {
       }
 
       return await this.getUserById(userId);
-    } catch (err) {
+    } catch {
       return null;
     }
   }
 
-  async destroySession(_sessionToken: string): Promise<void> {
-    // Stateless signed token invalidated via cookie clear or token blocklist
+  async destroySession(sessionToken: string): Promise<void> {
+    if (sessionToken) {
+      revokedTokens.add(sessionToken);
+    }
   }
 }
 
 /**
- * Corporate SSO Adapter (LDAP / SAML 2.0 / Active Directory)
- * Can be configured via environment variables for Snappfood corporate infrastructure.
+ * Corporate SSO Adapter (Fail-closed placeholder until real IdP integration)
  */
 export class CorporateSSOAdapter implements AuthAdapter {
   name = 'CorporateSSOAdapter';
@@ -126,36 +171,11 @@ export class CorporateSSOAdapter implements AuthAdapter {
     this.prisma = prismaClient;
   }
 
-  async authenticate(credentials: AuthCredentials): Promise<AuthUser | null> {
-    const { username, ssoToken } = credentials;
-    if (!username || !ssoToken) return null;
-
-    // Corporate LDAP / SAML verification logic:
-    // 1. Verify SAML Assertion signature against Corporate IdP metadata
-    // 2. Extract user attributes (department, Snappfood staff code, title)
-    // 3. Upsert into database and return mapped AuthUser
-    console.log(`[CorporateSSO] Authenticating ${username} via corporate identity provider...`);
-
-    // In production, integrate with passport-saml / ldapjs
-    const existing = await this.prisma.user.findUnique({
-      where: { username },
-      include: { agent_profile: true },
-    });
-
-    if (!existing) {
-      return null;
-    }
-
-    return {
-      id: existing.id,
-      username: existing.username,
-      name: existing.name,
-      role: existing.role as UserRole,
-      department: existing.department as DepartmentType | null,
-      team: existing.team,
-      agent_id: existing.agent_profile?.id || null,
-      active: existing.active,
-    };
+  async authenticate(_credentials: AuthCredentials): Promise<AuthUser | null> {
+    // FAIL CLOSED: Never authenticate a user merely because a username exists and ssoToken is non-empty.
+    // Until a real identity provider (SAML / LDAP / OAuth2) is configured and verified, fail closed.
+    console.warn('[CorporateSSO] Corporate identity provider is not configured or unavailable.');
+    return null;
   }
 
   async getUserById(id: string): Promise<AuthUser | null> {
@@ -172,6 +192,7 @@ export class CorporateSSOAdapter implements AuthAdapter {
       role: user.role as UserRole,
       department: user.department as DepartmentType | null,
       team: user.team,
+      team_id: user.agent_profile?.team_id || null,
       agent_id: user.agent_profile?.id || null,
       active: user.active,
     };
@@ -179,14 +200,14 @@ export class CorporateSSOAdapter implements AuthAdapter {
 
   async createSession(user: AuthUser): Promise<string> {
     const expires = Date.now() + SESSION_TTL_MS;
-    const randomNonce = crypto.randomBytes(8).toString('hex');
+    const randomNonce = crypto.randomBytes(16).toString('hex');
     const raw = `${user.id}:${expires}:${randomNonce}`;
     const sig = signPayload(raw);
     return Buffer.from(`${raw}:${sig}`).toString('base64url');
   }
 
   async validateSession(sessionToken: string): Promise<AuthUser | null> {
-    if (!sessionToken) return null;
+    if (!sessionToken || revokedTokens.has(sessionToken)) return null;
     try {
       const decoded = Buffer.from(sessionToken, 'base64url').toString('utf8');
       const parts = decoded.split(':');
@@ -201,5 +222,9 @@ export class CorporateSSOAdapter implements AuthAdapter {
     }
   }
 
-  async destroySession(_sessionToken: string): Promise<void> {}
+  async destroySession(sessionToken: string): Promise<void> {
+    if (sessionToken) {
+      revokedTokens.add(sessionToken);
+    }
+  }
 }

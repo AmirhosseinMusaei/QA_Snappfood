@@ -1,14 +1,9 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   UserRole,
   DepartmentType,
   User,
 } from '../types/index.ts';
-import {
-  SEED_CONTROLLERS,
-  SEED_TEAM_LEADS,
-  SEED_USERS,
-} from '../data/seedData.ts';
 import { AppContextType } from './types.ts';
 import { useAppMutations } from './useAppMutations.ts';
 import { useAppData } from './useAppData.ts';
@@ -19,15 +14,16 @@ export type { AppContextType };
 const AppContext = createContext<AppContextType | null>(null);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [role, setRoleState] = useState<UserRole>('qa_controller');
   const [activeUser, setActiveUser] = useState<User | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
 
-  const [currentAgentId, setCurrentAgentId] = useState<string>('agent-3718');
-  const [currentTeamLeadId, setCurrentTeamLeadId] = useState<string>('negin');
+  const [currentAgentId, setCurrentAgentId] = useState<string>('');
+  const [currentTeamLeadId, setCurrentTeamLeadId] = useState<string>('');
   const [currentManagerDept, setCurrentManagerDept] = useState<DepartmentType>('sales');
-  const [currentControllerId, setCurrentControllerId] = useState<string>('meysam');
+  const [currentControllerId, setCurrentControllerId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<string>('workspace');
 
   // Theme hook
@@ -36,20 +32,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // App Data hook (assessments, agents, teams, rubrics, settings, etc.)
   const data = useAppData();
 
-  // Current logged in user object based on active role
-  const currentUser: User = (() => {
-    if (activeUser && activeUser.role === role) return activeUser;
-    const u = SEED_USERS.find((item) => item.role === role);
-    return (
-      u || {
-        id: `usr-${role}`,
-        username: role,
-        name: role === 'agent' ? 'کارشناس عملیات' : 'کاربر سیستم',
-        role,
-        active: true,
-      }
-    );
-  })();
+  const clearAppData = data.clearData;
+  const refreshAppData = data.refreshData;
+
+  // Handle unauthorized session
+  const handleUnauthorized = useCallback(() => {
+    setActiveUser(null);
+    setIsAuthenticated(false);
+    clearAppData();
+    setShowLoginModal(true);
+  }, [clearAppData]);
+
+  // Current logged in user object based on authenticated user or active user
+  const currentUser: User = activeUser || {
+    id: `usr-${role}`,
+    username: role,
+    name: 'کاربر سیستم',
+    role,
+    active: true,
+  };
 
   const setRole = (newRole: UserRole) => {
     setRoleState(newRole);
@@ -68,27 +69,93 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Initial load & session restore
-  useEffect(() => {
-    fetch('/api/auth/me')
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.success && d.authenticated && d.user) {
-          setActiveUser(d.user);
-          setRoleState(d.user.role);
-          setIsAuthenticated(true);
-        }
-      })
-      .catch(() => {});
-    data.refreshData();
-  }, [data.refreshData]);
+  // Bind relationships based on authenticated user profile
+  const bindUserRelationships = useCallback((user: User) => {
+    if (user.agent_id) {
+      setCurrentAgentId(user.agent_id);
+    }
+    if (user.team_id) {
+      setCurrentTeamLeadId(user.team_id);
+    } else if (user.team) {
+      setCurrentTeamLeadId(user.team);
+    }
+    if (user.department) {
+      setCurrentManagerDept(user.department as DepartmentType);
+    }
+    if (user.role === 'qa_controller') {
+      setCurrentControllerId(user.id || user.username);
+    }
+  }, []);
 
-  // Auth
+  // Initial load & session restore from /api/auth/me (runs once on mount)
+  useEffect(() => {
+    let isMounted = true;
+    setAuthLoading(true);
+
+    const initAuth = async () => {
+      try {
+        const meRes = await fetch('/api/auth/me');
+        const meData = await meRes.json();
+        if (isMounted && meData.success && meData.authenticated && meData.user) {
+          setActiveUser(meData.user);
+          setRoleState(meData.user.role);
+          setIsAuthenticated(true);
+          bindUserRelationships(meData.user);
+          await refreshAppData();
+          return;
+        }
+
+        // Auto-login as default admin for instant AI Studio preview visibility
+        try {
+          const loginRes = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: 'admin', password: 'snappfood123' }),
+          });
+          const loginData = await loginRes.json();
+          if (isMounted && loginRes.ok && loginData.success && loginData.user) {
+            setActiveUser(loginData.user);
+            setRoleState(loginData.user.role);
+            setIsAuthenticated(true);
+            bindUserRelationships(loginData.user);
+            await refreshAppData();
+            return;
+          }
+        } catch {}
+
+        if (isMounted) {
+          setActiveUser(null);
+          setIsAuthenticated(false);
+          setShowLoginModal(true);
+        }
+      } catch (err) {
+        console.error('Initial session check error:', err);
+        if (isMounted) {
+          setActiveUser(null);
+          setIsAuthenticated(false);
+          setShowLoginModal(true);
+        }
+      } finally {
+        if (isMounted) {
+          setAuthLoading(false);
+        }
+      }
+    };
+
+    initAuth();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [bindUserRelationships, refreshAppData]);
+
+  // Auth: Login
   const login = async (user: User) => {
     setActiveUser(user);
     setRoleState(user.role);
     setIsAuthenticated(true);
     setShowLoginModal(false);
+    bindUserRelationships(user);
 
     if (user.role === 'agent') {
       setActiveTab('agent_view');
@@ -104,12 +171,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setActiveTab('audits');
     }
 
-    data.refreshData();
+    data.refreshData(handleUnauthorized);
   };
 
+  // Auth: Logout
   const logout = async () => {
     setActiveUser(null);
     setIsAuthenticated(false);
+    data.clearData();
     setShowLoginModal(true);
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
@@ -143,7 +212,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     salesFormId: data.salesFormId,
     setSalesFormId: data.setSalesFormId,
     refreshAuditLogs: data.refreshAuditLogs,
-    refreshData: data.refreshData,
+    refreshData: () => data.refreshData(handleUnauthorized),
     setError: data.setError,
     setLoading: data.setLoading,
   });
@@ -151,6 +220,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <AppContext.Provider
       value={{
+        authLoading,
         role,
         setRole,
         currentUser,
@@ -168,14 +238,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setActiveTab,
         loading: data.loading,
         error: data.error,
-        refreshData: data.refreshData,
+        refreshData: () => data.refreshData(handleUnauthorized),
         assessments: data.assessments.filter((a) => !a.deleted_at),
         allAssessments: data.assessments,
         agents: data.agents,
         faults: data.faults,
         teams: data.teams,
-        controllers: SEED_CONTROLLERS,
-        teamLeads: SEED_TEAM_LEADS,
+        controllers: data.controllers,
+        teamLeads: data.teamLeads,
         auditLogs: data.auditLogs,
         settings: data.settings,
         problems: data.problems,

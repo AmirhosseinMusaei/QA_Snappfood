@@ -60,6 +60,8 @@ export const AuditsHistory: React.FC = () => {
   const [filterResult, setFilterResult] = useState<'all' | AssessmentResult>('all');
   const [filterFraud, setFilterFraud] = useState<'all' | 'fraud' | 'backend_general'>('all');
   const [showDeleted, setShowDeleted] = useState<boolean>(false);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   // Modals
   const [selectedAudit, setSelectedAudit] = useState<Assessment | null>(null);
@@ -156,8 +158,14 @@ export const AuditsHistory: React.FC = () => {
     filterScoreRange,
     filterResult,
     filterFraud,
-    search,
   ]);
+
+  const totalItems = filteredAudits.length;
+  const totalPages = Math.ceil(totalItems / pageSize) || 1;
+  const paginatedAudits = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredAudits.slice(start, start + pageSize);
+  }, [filteredAudits, currentPage, pageSize]);
 
   // Open Edit Modal
   const handleOpenEdit = (audit: Assessment) => {

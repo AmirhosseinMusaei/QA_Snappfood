@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite" // In production with Microsoft SQL Server, change to provider = "sqlserver" or run `npm run db:switch:sqlserver`
+  provider = "sqlite" // In production with Microsoft SQL Server, change to provider = "sqlite" or run `npm run db:switch:sqlserver`
   url      = env("DATABASE_URL")
 }
 
@@ -38,7 +38,7 @@ model Team {
   created_at DateTime    @default(now())
   updated_at DateTime    @updatedAt
 
-  lead        User?        @relation("TeamLead", fields: [lead_id], references: [id])
+  lead        User?        @relation("TeamLead", fields: [lead_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
   agents      Agent[]
   assessments Assessment[]
 
@@ -66,10 +66,10 @@ model Agent {
   created_at          DateTime     @default(now())
   updated_at          DateTime     @updatedAt
 
-  user                User?        @relation("UserToAgent", fields: [user_id], references: [id])
-  team                Team         @relation(fields: [team_id], references: [id])
-  team_lead_user      User?        @relation("AgentTeamLead", fields: [team_lead_id], references: [id])
-  controller_user     User?        @relation("AgentController", fields: [controller_id], references: [id])
+  user                User?        @relation("UserToAgent", fields: [user_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  team                Team         @relation(fields: [team_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  team_lead_user      User?        @relation("AgentTeamLead", fields: [team_lead_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  controller_user     User?        @relation("AgentController", fields: [controller_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
   assessments         Assessment[]
 
   @@index([source_id])
@@ -179,8 +179,8 @@ model Assessment {
   updated_at            DateTime          @updatedAt
   deleted_at            DateTime?         // Soft delete
 
-  agent                 Agent             @relation(fields: [agent_id], references: [id])
-  team                  Team?             @relation(fields: [team_id], references: [id])
+  agent                 Agent             @relation(fields: [agent_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  team                  Team?             @relation(fields: [team_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
   form                  AssessmentForm?   @relation(fields: [form_id], references: [id])
   fault                 Fault?            @relation(fields: [fault_id], references: [id])
   scores                AssessmentScore[]

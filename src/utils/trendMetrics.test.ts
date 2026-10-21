@@ -17,6 +17,14 @@ test('parseJalaliDate parses Persian and English digits correctly', () => {
 
   const p3 = parseJalaliDate('');
   assert.strictEqual(p3, null);
+
+  // ISO date UTC conversion to Asia/Tehran Jalali date (PRD requirement 8)
+  const pIso = parseJalaliDate('2026-10-19T00:00:00.000Z');
+  assert.deepStrictEqual(pIso, { year: 1405, month: 7, day: 27 });
+
+  // Invalid date rejection
+  assert.strictEqual(parseJalaliDate('not-a-date'), null);
+  assert.strictEqual(parseJalaliDate('1405/13/45'), null);
 });
 
 test('getWeekOfMonth correctly partitions calendar days into weeks 1-4', () => {

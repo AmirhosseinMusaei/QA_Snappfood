@@ -7,7 +7,7 @@
     "dev": "tsx server.ts",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "tsx server.ts",
+    "start": "node server.ts",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
@@ -16,8 +16,9 @@
     "db:switch:sqlserver": "node scripts/switch-db.js sqlserver",
     "db:switch:sqlite": "node scripts/switch-db.js sqlite",
     "db:migrate:check-date": "tsx scripts/migrate-check-date.ts",
-    "test": "NODE_ENV=test tsx --test src/integration.test.ts src/api.test.ts src/utils/trendMetrics.test.ts src/utils/scoring.test.ts",
-    "test:rbac": "NODE_ENV=test tsx --test src/integration.test.ts"
+    "test:db:setup": "DATABASE_URL=\"file:./test.db\" prisma db push --skip-generate && DATABASE_URL=\"file:./test.db\" tsx prisma/seed.ts",
+    "test": "npm run test:db:setup && NODE_ENV=test TEST_DATABASE_URL=\"file:./test.db\" tsx --test src/integration.test.ts src/api.test.ts src/utils/trendMetrics.test.ts src/utils/scoring.test.ts",
+    "test:rbac": "npm run test:db:setup && NODE_ENV=test TEST_DATABASE_URL=\"file:./test.db\" tsx --test src/integration.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -41,6 +42,7 @@
     "react-dom": "19.0.1",
     "react-is": "19.0.0",
     "recharts": "3.10.1",
+    "tsx": "4.23.15",
     "vite": "8.3.0",
     "xlsx": "0.18.5"
   },
@@ -50,7 +52,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "autoprefixer": "10.4.21",
-    "esbuild": "0.25.0",
+    "esbuild": "0.28.2",
     "tailwindcss": "4.3.3",
     "tsx": "4.23.15",
     "typescript": "7.0.2"

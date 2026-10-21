@@ -1,4 +1,6 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
+import type { Request, Response } from 'express';
+import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -20,6 +22,7 @@ import {
   formatJalaliDate,
   getCurrentJalaliYear,
   toEnglishDigits,
+  jalaliToGregorianUTC,
 } from './src/utils/persian.ts';
 import * as XLSX from 'xlsx';
 import {
@@ -33,30 +36,62 @@ import {
   SEED_ASSESSMENTS,
   SEED_PROBLEMS,
 } from './src/data/seedData.ts';
-import { LocalDatabaseAuthAdapter, CorporateSSOAdapter } from './src/server/auth/adapter.ts';
+import { LocalDatabaseAuthAdapter, CorporateSSOAdapter, validateProductionSecrets } from './src/server/auth/adapter.ts';
 import { createAuthMiddleware } from './src/server/auth/middleware.ts';
-import { AuthUser } from './src/server/auth/types.ts';
+import {
+  getAssessmentScope,
+  canUserAccessAssessment,
+  canUserEditAssessment,
+  canUserDeleteAssessment,
+  getAgentScope,
+} from './src/server/auth/scope.ts';
+import type { AuthUser } from './src/server/auth/types.ts';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const prisma = new PrismaClient();
+const dbUrl = process.env.NODE_ENV === 'test'
+  ? (process.env.TEST_DATABASE_URL || 'file:./test.db')
+  : (process.env.DATABASE_URL || 'file:./dev.db');
+
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: dbUrl,
+    },
+  },
+});
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-const COOKIE_SECRET = process.env.COOKIE_SECRET || 'snappfood-qa-session-cookie-secret-2024';
+const COOKIE_SECRET =
+  process.env.COOKIE_SECRET && process.env.COOKIE_SECRET !== 'snappfood-qa-session-cookie-secret-2024'
+    ? process.env.COOKIE_SECRET
+    : process.env.NODE_ENV === 'production'
+    ? crypto.randomBytes(32).toString('hex')
+    : 'snappfood-qa-session-cookie-secret-2024';
+
+// Validate production secrets configuration
+validateProductionSecrets(COOKIE_SECRET);
 
 // Pluggable Auth Adapter: Local Database (bcrypt) or Corporate SSO (LDAP / SAML)
 const authAdapter = process.env.AUTH_PROVIDER === 'sso'
   ? new CorporateSSOAdapter(prisma)
   : new LocalDatabaseAuthAdapter(prisma);
 
-const { authenticate, optionalAuth, requireRole } = createAuthMiddleware(authAdapter);
+const {
+  authenticate,
+  optionalAuth,
+  requireRole,
+  loginRateLimiter,
+  validateCsrfOrigin,
+} = createAuthMiddleware(authAdapter);
 
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 app.use(cookieParser(COOKIE_SECRET));
+app.use('/api', validateCsrfOrigin);
 
 // ==========================================
 // AUDIT LOG HELPER (Immutable, Server-Written)
@@ -200,18 +235,27 @@ app.get('/api/health', async (_req: Request, res: Response) => {
 // ==========================================
 // 2. AUTHENTICATION & SESSION API
 // ==========================================
-app.post('/api/auth/login', async (req: Request, res: Response) => {
+app.post('/api/auth/login', loginRateLimiter, async (req: Request, res: Response) => {
   try {
     const { username, password, ssoToken, provider = 'local' } = req.body;
 
+    if (provider === 'sso' || ssoToken) {
+      return res.status(503).json({
+        success: false,
+        message: 'سرویس احراز هویت یکپارچه سازمانی (SSO) پیکربندی نشده و در دسترس نیست',
+      });
+    }
+
     if (!username) {
       return res.status(400).json({ success: false, message: 'نام کاربری الزامی است' });
+    }
+    if (!password) {
+      return res.status(400).json({ success: false, message: 'کلمه عبور الزامی است' });
     }
 
     const authUser = await authAdapter.authenticate({
       username,
       password,
-      ssoToken,
       provider,
     });
 
@@ -246,10 +290,10 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       new_value: `ورود موفق: ${authUser.name} (${authUser.role})`,
     });
 
+    // Do not return raw session token in JSON body
     res.json({
       success: true,
       user: authUser,
-      token: sessionToken,
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
@@ -258,7 +302,11 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 
 app.post('/api/auth/logout', async (req: Request, res: Response) => {
   try {
-    const token = req.signedCookies?.snappfood_session || req.cookies?.snappfood_session;
+    const token =
+      req.signedCookies?.snappfood_session ||
+      req.cookies?.snappfood_session ||
+      (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : null);
+
     if (token) {
       await authAdapter.destroySession(token);
     }
@@ -284,24 +332,20 @@ app.get('/api/auth/me', optionalAuth, (req: Request, res: Response) => {
   });
 });
 
-// Legacy login route compatible with frontend
-app.post('/api/users/login', async (req: Request, res: Response) => {
-  const { username, password = 'snappfood123', role } = req.body;
-  const targetUsername = username || role || 'admin';
+// Legacy login route compatible with frontend (strictly requiring username and password)
+app.post('/api/users/login', loginRateLimiter, async (req: Request, res: Response) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ success: false, message: 'نام کاربری و کلمه عبور الزامی است' });
+  }
+
   const authUser = await authAdapter.authenticate({
-    username: targetUsername,
+    username,
     password,
   });
 
   if (!authUser) {
-    // If not matching password, check if user exists
-    const user = await prisma.user.findFirst({
-      where: { OR: [{ username: targetUsername }, { role: targetUsername }] },
-    });
-    if (!user) {
-      return res.status(401).json({ success: false, message: 'کاربر یافت نشد' });
-    }
-    return res.status(401).json({ success: false, message: 'رمز عبور اشتباه است' });
+    return res.status(401).json({ success: false, message: 'نام کاربری یا رمز عبور اشتباه است' });
   }
 
   const sessionToken = await authAdapter.createSession(authUser);
@@ -314,7 +358,58 @@ app.post('/api/users/login', async (req: Request, res: Response) => {
     path: '/',
   });
 
-  res.json({ success: true, data: authUser, token: sessionToken });
+  res.json({ success: true, data: authUser });
+});
+
+// Authorized Staff Directory (Controllers & Team Leads from backend DB)
+app.get('/api/staff', authenticate, async (_req: Request, res: Response) => {
+  try {
+    const [controllers, teamLeads] = await Promise.all([
+      prisma.user.findMany({
+        where: {
+          role: { in: ['qa_controller', 'qa_supervisor'] },
+          active: true,
+        },
+        select: { id: true, username: true, name: true, role: true },
+        orderBy: { name: 'asc' },
+      }),
+      prisma.user.findMany({
+        where: {
+          role: 'team_lead',
+          active: true,
+        },
+        select: { id: true, username: true, name: true, team: true, department: true },
+        orderBy: { name: 'asc' },
+      }),
+    ]);
+
+    const targetSetting = await prisma.setting.findUnique({
+      where: { key: 'controller_monthly_target' },
+    });
+    let targetMonthly = 160;
+    if (targetSetting) {
+      try {
+        targetMonthly = JSON.parse(targetSetting.value);
+      } catch {
+        targetMonthly = parseInt(targetSetting.value, 10) || 160;
+      }
+    }
+
+    res.json({
+      success: true,
+      controllers: controllers.map((c) => ({
+        id: c.id,
+        username: c.username,
+        name: c.name,
+        display_name: c.name,
+        role: c.role,
+        target: targetMonthly,
+      })),
+      teamLeads: teamLeads.map((tl) => ({ id: tl.id, username: tl.username, name: tl.name, team: tl.team, department: tl.department })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // ==========================================
@@ -332,7 +427,7 @@ app.get('/api/users', authenticate, requireRole(['admin', 'qa_supervisor']), asy
   }
 });
 
-app.post('/api/users', authenticate, requireRole(['admin']), async (req: Request, res: Response) => {
+app.post('/api/users', authenticate, requireRole(['admin', 'qa_supervisor']), async (req: Request, res: Response) => {
   try {
     const { username, password, name, role, department, team } = req.body;
     if (!username || !password || !name || !role) {
@@ -370,7 +465,7 @@ app.post('/api/users', authenticate, requireRole(['admin']), async (req: Request
   }
 });
 
-app.put('/api/users/:id', authenticate, requireRole(['admin']), async (req: Request, res: Response) => {
+app.put('/api/users/:id', authenticate, requireRole(['admin', 'qa_supervisor']), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { name, role, department, team, active, password } = req.body;
@@ -406,7 +501,7 @@ app.put('/api/users/:id', authenticate, requireRole(['admin']), async (req: Requ
   }
 });
 
-app.delete('/api/users/:id', authenticate, requireRole(['admin']), async (req: Request, res: Response) => {
+app.delete('/api/users/:id', authenticate, requireRole(['admin', 'qa_supervisor']), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     if (req.user!.id === id) {
@@ -450,8 +545,12 @@ app.get('/api/teams', authenticate, async (req: Request, res: Response) => {
         { lead_id: user.id },
         { name: user.team || '' },
       ];
-    } else if (user.role === 'manager' && user.department) {
-      where.department = user.department;
+    } else if (user.role === 'manager') {
+      if (user.department) {
+        where.department = user.department;
+      } else {
+        where.id = '__NONE__';
+      }
     }
 
     const teams = await prisma.team.findMany({
@@ -464,13 +563,102 @@ app.get('/api/teams', authenticate, async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/teams', authenticate, requireRole(['qa_supervisor']), async (req: Request, res: Response) => {
+app.post('/api/teams', authenticate, requireRole(['admin', 'qa_supervisor']), async (req: Request, res: Response) => {
   try {
     const { name, department, lead_name, lead_id } = req.body;
     const team = await prisma.team.create({
       data: { name, department, lead_name, lead_id },
     });
+    await recordServerAuditLog({
+      user_id: req.user!.id,
+      user_name: req.user!.name,
+      user_role: req.user!.role,
+      entity: 'settings',
+      entity_id: team.id,
+      action: 'create',
+      field: 'team',
+      new_value: `${team.name} (${team.department})`,
+    });
     res.status(201).json({ success: true, data: team });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.put('/api/teams/:id', authenticate, requireRole(['admin', 'qa_supervisor']), async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, department, lead_name, lead_id } = req.body;
+    const currentTeam = await prisma.team.findUnique({ where: { id } });
+    if (!currentTeam) {
+      return res.status(404).json({ success: false, message: 'تیم یافت نشد' });
+    }
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = name;
+    if (department !== undefined) updateData.department = department;
+    if (lead_name !== undefined) updateData.lead_name = lead_name;
+    if (lead_id !== undefined) updateData.lead_id = lead_id;
+
+    const updated = await prisma.team.update({
+      where: { id },
+      data: updateData,
+    });
+
+    if (name && name !== currentTeam.name) {
+      await prisma.agent.updateMany({
+        where: { team_id: id },
+        data: { team_name: name },
+      });
+    }
+
+    await recordServerAuditLog({
+      user_id: req.user!.id,
+      user_name: req.user!.name,
+      user_role: req.user!.role,
+      entity: 'settings',
+      entity_id: id,
+      action: 'update',
+      field: Object.keys(updateData).join(', '),
+      old_value: currentTeam.name,
+      new_value: updated.name,
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.delete('/api/teams/:id', authenticate, requireRole(['admin', 'qa_supervisor']), async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const currentTeam = await prisma.team.findUnique({ where: { id } });
+    if (!currentTeam) {
+      return res.status(404).json({ success: false, message: 'تیم یافت نشد' });
+    }
+    const agentCount = await prisma.agent.count({ where: { team_id: id, active: true } });
+    if (agentCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `امکان حذف تیم وجود ندارد؛ ${agentCount} کارشناس فعال در این تیم حضور دارند`,
+      });
+    }
+
+    await prisma.team.delete({ where: { id } });
+
+    await recordServerAuditLog({
+      user_id: req.user!.id,
+      user_name: req.user!.name,
+      user_role: req.user!.role,
+      entity: 'settings',
+      entity_id: id,
+      action: 'delete',
+      field: 'team',
+      old_value: currentTeam.name,
+      new_value: 'deleted',
+    });
+
+    res.json({ success: true, message: 'تیم با موفقیت حذف شد' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -483,48 +671,27 @@ app.get('/api/agents', authenticate, async (req: Request, res: Response) => {
   try {
     const user = req.user!;
     const { team, department, source_id, active } = req.query;
-    const where: any = {};
+    const baseWhere: any = {};
 
     if (active !== undefined) {
-      where.active = active === 'true';
+      baseWhere.active = active === 'true';
     }
     if (source_id && typeof source_id === 'string') {
-      where.source_id = source_id;
+      baseWhere.source_id = source_id;
     }
 
-    // Role-based data scoping
-    if (user.role === 'agent') {
-      // Agent sees only own profile
-      where.OR = [
-        { user_id: user.id },
-        { name: user.name },
-        { id: user.agent_id || '' },
-      ];
-    } else if (user.role === 'team_lead') {
-      // Team lead sees only own team
-      where.OR = [
-        { team_name: user.team || '' },
-        { team_lead_id: user.id },
-        { team_lead: user.name },
-      ];
-    } else if (user.role === 'manager') {
-      // Manager sees only own department
-      if (user.department) {
-        where.department = user.department;
-      }
-    } else if (user.role === 'qa_controller') {
-      // Controller sees assigned agents
-      where.OR = [
-        { controller_id: user.id },
-        { controller: user.username },
-        { controller: user.name },
-      ];
-    } else {
-      // QA Supervisor and Admin see all
-      if (team && typeof team === 'string' && team !== 'all') {
-        where.team_name = team;
-      }
-      if (department && typeof department === 'string') {
+    // Role-based data scoping via immutable relations
+    const where = getAgentScope(user, baseWhere);
+
+    if (team && typeof team === 'string' && team !== 'all') {
+      where.team_name = team;
+    }
+    if (department && typeof department === 'string') {
+      if (user.role === 'manager' && user.department && user.department !== department) {
+        where.id = '__NONE__';
+      } else if (user.role === 'manager' && !user.department) {
+        where.id = '__NONE__';
+      } else if (user.role === 'admin' || user.role === 'qa_supervisor') {
         where.department = department;
       }
     }
@@ -549,7 +716,7 @@ app.get('/api/agents', authenticate, async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/agents', authenticate, requireRole(['qa_supervisor']), async (req: Request, res: Response) => {
+app.post('/api/agents', authenticate, requireRole(['admin', 'qa_supervisor']), async (req: Request, res: Response) => {
   try {
     const {
       name,
@@ -606,7 +773,7 @@ app.post('/api/agents', authenticate, requireRole(['qa_supervisor']), async (req
   }
 });
 
-app.put('/api/agents/:id', authenticate, requireRole(['qa_supervisor']), async (req: Request, res: Response) => {
+app.put('/api/agents/:id', authenticate, requireRole(['admin', 'qa_supervisor']), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { team, ...updates } = req.body;
@@ -647,7 +814,61 @@ app.put('/api/agents/:id', authenticate, requireRole(['qa_supervisor']), async (
   }
 });
 
-app.post('/api/agents/import-csv', authenticate, requireRole(['qa_supervisor']), async (req: Request, res: Response) => {
+app.delete('/api/agents/:id', authenticate, requireRole(['admin', 'qa_supervisor']), async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const currentAgent = await prisma.agent.findUnique({ where: { id } });
+    if (!currentAgent) {
+      return res.status(404).json({ success: false, message: 'کارشناس یافت نشد' });
+    }
+
+    const assessmentCount = await prisma.assessment.count({
+      where: { agent_id: id, deleted_at: null },
+    });
+
+    if (assessmentCount > 0) {
+      await prisma.agent.update({
+        where: { id },
+        data: { active: false },
+      });
+      await recordServerAuditLog({
+        user_id: req.user!.id,
+        user_name: req.user!.name,
+        user_role: req.user!.role,
+        entity: 'agent',
+        entity_id: id,
+        action: 'update',
+        field: 'active',
+        old_value: 'true',
+        new_value: 'false',
+      });
+      return res.json({
+        success: true,
+        message: 'کارشناس به دلیل داشتن سابقه ارزیابی غیرفعال شد (حفظ یکپارچگی داده‌ها)',
+        deactivated: true,
+      });
+    }
+
+    await prisma.agent.delete({ where: { id } });
+    await recordServerAuditLog({
+      user_id: req.user!.id,
+      user_name: req.user!.name,
+      user_role: req.user!.role,
+      entity: 'agent',
+      entity_id: id,
+      action: 'delete',
+      field: 'agent',
+      old_value: currentAgent.name,
+      new_value: 'deleted',
+    });
+
+    res.json({ success: true, message: 'کارشناس با موفقیت حذف شد' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.post('/api/agents/import-csv', authenticate, requireRole(['admin', 'qa_supervisor']), async (req: Request, res: Response) => {
   try {
     const { csvText, dryRun } = req.body;
     const user = req.user!;
@@ -869,7 +1090,7 @@ app.get('/api/forms/:formType/version/:version', authenticate, async (req: Reque
   }
 });
 
-app.put('/api/forms/:formType', authenticate, requireRole(['qa_supervisor']), async (req: Request, res: Response) => {
+app.put('/api/forms/:formType', authenticate, requireRole(['admin', 'qa_supervisor']), async (req: Request, res: Response) => {
   try {
     const { formType } = req.params;
     const { sections } = req.body;
@@ -970,7 +1191,7 @@ app.get('/api/faults', authenticate, async (_req: Request, res: Response) => {
   }
 });
 
-app.post('/api/faults', authenticate, requireRole(['qa_supervisor']), async (req: Request, res: Response) => {
+app.post('/api/faults', authenticate, requireRole(['admin', 'qa_supervisor']), async (req: Request, res: Response) => {
   try {
     const { title, department, category, is_critical, description } = req.body;
     const user = req.user!;
@@ -1002,7 +1223,7 @@ app.post('/api/faults', authenticate, requireRole(['qa_supervisor']), async (req
   }
 });
 
-app.put('/api/faults/:id', authenticate, requireRole(['qa_supervisor']), async (req: Request, res: Response) => {
+app.put('/api/faults/:id', authenticate, requireRole(['admin', 'qa_supervisor']), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -1030,7 +1251,7 @@ app.put('/api/faults/:id', authenticate, requireRole(['qa_supervisor']), async (
   }
 });
 
-app.delete('/api/faults/:id', authenticate, requireRole(['qa_supervisor']), async (req: Request, res: Response) => {
+app.delete('/api/faults/:id', authenticate, requireRole(['admin', 'qa_supervisor']), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const user = req.user!;
@@ -1060,65 +1281,181 @@ app.delete('/api/faults/:id', authenticate, requireRole(['qa_supervisor']), asyn
   }
 });
 
+// Helper to build robust database filters for assessments within authorized boundary
+function buildAssessmentFilterWhere(user: AuthUser, query: Record<string, any>) {
+  const {
+    agent_id,
+    form_type,
+    result,
+    controller_id,
+    search,
+    include_deleted,
+    team_id,
+    team,
+    min_score,
+    max_score,
+    fault_id,
+    has_fault,
+    is_fraud,
+    year,
+    month,
+    jalali_year,
+    jalali_month,
+  } = query;
+
+  const baseWhere: any = {};
+  if (include_deleted !== 'true') {
+    baseWhere.deleted_at = null;
+  }
+
+  // 1. Role-based scoping per PRD
+  const where = getAssessmentScope(user, baseWhere);
+
+  // 2. User-supplied filters within authorized boundary
+  if (agent_id && typeof agent_id === 'string' && agent_id !== 'all') {
+    if (user.role === 'agent' && user.agent_id && user.agent_id !== agent_id) {
+      where.id = '__NONE__';
+    } else {
+      where.agent_id = agent_id;
+    }
+  }
+
+  if (form_type && typeof form_type === 'string' && form_type !== 'all') {
+    if (user.role === 'manager' && user.department && user.department !== form_type) {
+      where.id = '__NONE__';
+    } else if (user.role === 'manager' && !user.department) {
+      where.id = '__NONE__';
+    } else if (user.role === 'admin' || user.role === 'qa_supervisor' || user.role === 'qa_controller' || user.role === 'team_lead') {
+      where.form_type = form_type;
+    }
+  }
+
+  if (result && typeof result === 'string' && result !== 'all') {
+    where.result = result;
+  }
+
+  if (controller_id && typeof controller_id === 'string' && controller_id !== 'all') {
+    where.controller_id = controller_id;
+  }
+
+  const teamFilter = team_id || team;
+  if (teamFilter && typeof teamFilter === 'string' && teamFilter !== 'all') {
+    const teamConditions = [
+      { team_id: teamFilter },
+      { agent: { team_id: teamFilter } },
+      { agent: { team_name: teamFilter } },
+    ];
+    if (where.OR) {
+      where.AND = [...(where.AND || []), { OR: teamConditions }];
+    } else {
+      where.OR = teamConditions;
+    }
+  }
+
+  // Score range
+  const minScoreNum = min_score !== undefined && min_score !== '' ? parseInt(String(min_score), 10) : NaN;
+  const maxScoreNum = max_score !== undefined && max_score !== '' ? parseInt(String(max_score), 10) : NaN;
+  if (!isNaN(minScoreNum) || !isNaN(maxScoreNum)) {
+    where.total_score = {};
+    if (!isNaN(minScoreNum)) where.total_score.gte = minScoreNum;
+    if (!isNaN(maxScoreNum)) where.total_score.lte = maxScoreNum;
+  }
+
+  // Fault filter
+  if (fault_id && typeof fault_id === 'string' && fault_id !== 'all') {
+    where.fault_id = fault_id;
+  } else if (has_fault === 'true') {
+    where.fault_id = { not: null };
+  } else if (has_fault === 'false') {
+    where.fault_id = null;
+  }
+
+  // Fraud filter
+  if (is_fraud === 'true') {
+    where.is_fraud = true;
+  } else if (is_fraud === 'false') {
+    where.is_fraud = false;
+  }
+
+  // Jalali year / month filter
+  const targetYear = parseInt(String(jalali_year || year), 10);
+  const targetMonth = parseInt(String(jalali_month || month), 10);
+  if (!isNaN(targetYear) && !isNaN(targetMonth) && targetMonth >= 1 && targetMonth <= 12) {
+    const startDate = jalaliToGregorianUTC(targetYear, targetMonth, 1);
+    const nextYear = targetMonth === 12 ? targetYear + 1 : targetYear;
+    const nextMonth = targetMonth === 12 ? 1 : targetMonth + 1;
+    const endDate = jalaliToGregorianUTC(nextYear, nextMonth, 1);
+    where.check_date = {
+      gte: startDate,
+      lt: endDate,
+    };
+  }
+
+  // Search filter
+  if (search && typeof search === 'string' && search.trim()) {
+    const q = search.trim();
+    const searchConditions = [
+      { id: { contains: q } },
+      { vendor_title: { contains: q } },
+      { vendor_id: { contains: q } },
+      { ticket_number: { contains: q } },
+      { phone_number: { contains: q } },
+      { result_comment: { contains: q } },
+      { agent: { name: { contains: q } } },
+      { agent: { source_id: { contains: q } } },
+    ];
+    if (where.OR) {
+      where.AND = [...(where.AND || []), { OR: searchConditions }];
+    } else {
+      where.OR = searchConditions;
+    }
+  }
+
+  return where;
+}
+
 // ==========================================
 // 8. ASSESSMENTS API (Strict RBAC Scoping & Enforcement)
 // ==========================================
 app.get('/api/assessments', authenticate, async (req: Request, res: Response) => {
   try {
     const user = req.user!;
-    const { agent_id, form_type, result, controller_id, search, include_deleted } = req.query;
-    const where: any = {};
+    const where = buildAssessmentFilterWhere(user, req.query);
+    const { page, limit, sort_by, sort_dir } = req.query;
 
-    if (include_deleted !== 'true') {
-      where.deleted_at = null;
-    }
+    const allowedSortFields = ['created_at', 'check_date', 'total_score', 'result'];
+    const sortField = typeof sort_by === 'string' && allowedSortFields.includes(sort_by) ? sort_by : 'created_at';
+    const sortDirection = sort_dir === 'asc' ? 'asc' : 'desc';
+    const orderBy = { [sortField]: sortDirection };
 
-    // Role-based scoping per PRD
-    if (user.role === 'agent') {
-      // Agent sees only own data
-      where.agent = {
-        OR: [
-          { user_id: user.id },
-          { name: user.name },
-          { id: user.agent_id || '' },
-        ],
-      };
-    } else if (user.role === 'team_lead') {
-      // Team lead sees only own team
-      where.agent = {
-        OR: [
-          { team_name: user.team || '' },
-          { team_lead_id: user.id },
-          { team_lead: user.name },
-        ],
-      };
-    } else if (user.role === 'manager') {
-      // Manager sees only own department
-      if (user.department) {
-        where.form_type = user.department;
-      }
-    } else if (user.role === 'qa_controller') {
-      // QA Controller sees only their assigned agents or assessments they performed
-      where.OR = [
-        { controller_id: user.username },
-        { controller_id: user.id },
-        { agent: { controller_id: user.id } },
-        { agent: { controller: user.username } },
-      ];
-    } else {
-      // QA Supervisor and Admin see all
-      if (agent_id && typeof agent_id === 'string') {
-        where.agent_id = agent_id;
-      }
-      if (form_type && typeof form_type === 'string') {
-        where.form_type = form_type;
-      }
-      if (result && typeof result === 'string' && result !== 'all') {
-        where.result = result;
-      }
-      if (controller_id && typeof controller_id === 'string' && controller_id !== 'all') {
-        where.controller_id = controller_id;
-      }
+    const total = await prisma.assessment.count({ where });
+
+    if (page !== undefined) {
+      const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+      const limitNum = Math.max(1, parseInt(String(limit), 10) || 20);
+      const skip = (pageNum - 1) * limitNum;
+      const assessments = await prisma.assessment.findMany({
+        where,
+        include: {
+          agent: true,
+          disputes: true,
+          scores: true,
+        },
+        orderBy,
+        skip,
+        take: limitNum,
+      });
+
+      const formatted = assessments.map(formatAssessmentResponse);
+      return res.json({
+        success: true,
+        count: formatted.length,
+        total,
+        page: pageNum,
+        limit: limitNum,
+        total_pages: Math.ceil(total / limitNum) || 1,
+        data: formatted,
+      });
     }
 
     const assessments = await prisma.assessment.findMany({
@@ -1128,24 +1465,12 @@ app.get('/api/assessments', authenticate, async (req: Request, res: Response) =>
         disputes: true,
         scores: true,
       },
-      orderBy: { created_at: 'desc' },
+      orderBy,
+      ...(limit ? { take: parseInt(String(limit), 10) } : {}),
     });
 
-    let formatted = assessments.map(formatAssessmentResponse);
-
-    if (search && typeof search === 'string') {
-      const q = search.toLowerCase();
-      formatted = formatted.filter(
-        (a) =>
-          a.id.toLowerCase().includes(q) ||
-          (a.vendor_title && a.vendor_title.toLowerCase().includes(q)) ||
-          (a.vendor_id && a.vendor_id.includes(q)) ||
-          (a.ticket_number && a.ticket_number.includes(q)) ||
-          (a.phone_number && a.phone_number.includes(q))
-      );
-    }
-
-    res.json({ success: true, count: formatted.length, data: formatted });
+    const formatted = assessments.map(formatAssessmentResponse);
+    res.json({ success: true, count: formatted.length, total, data: formatted });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -1163,6 +1488,15 @@ app.get('/api/assessments/:id', authenticate, async (req: Request, res: Response
       },
     });
     if (!assessment) {
+      return res.status(404).json({ success: false, message: 'Assessment not found' });
+    }
+    if (!canUserAccessAssessment(req.user!, assessment)) {
+      return res.status(403).json({
+        success: false,
+        message: 'شما دسترسی مجاز به مشاهده این ارزیابی را ندارید (Forbidden)',
+      });
+    }
+    if (assessment.deleted_at && req.user!.role !== 'qa_supervisor') {
       return res.status(404).json({ success: false, message: 'Assessment not found' });
     }
     res.json({ success: true, data: formatAssessmentResponse(assessment) });
@@ -1185,13 +1519,12 @@ app.post('/api/assessments', authenticate, requireRole(['qa_controller', 'qa_sup
       return res.status(404).json({ success: false, message: 'کارشناس انتخاب‌شده یافت نشد' });
     }
 
-    // QA Controller can only create assessments for assigned agents
+    // QA Controller can only create assessments for assigned agents (immutable IDs)
     if (user.role === 'qa_controller') {
       const isAssigned =
         targetAgent.controller_id === user.id ||
         targetAgent.controller_user?.id === user.id ||
-        targetAgent.controller.toLowerCase() === user.username.toLowerCase() ||
-        targetAgent.controller.includes(user.name);
+        targetAgent.controller.toLowerCase() === user.username.toLowerCase();
 
       if (!isAssigned) {
         return res.status(403).json({
@@ -1253,6 +1586,14 @@ app.post('/api/assessments', authenticate, requireRole(['qa_controller', 'qa_sup
       });
     }
 
+    const parsedCheckDate = parseJalaliOrGregorianDate(body.check_date);
+    if (!parsedCheckDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'تاریخ بررسی الزامی یا نامعتبر است (Invalid check_date)',
+      });
+    }
+
     const newId = body.id || `qa-${Date.now().toString().slice(-6)}`;
 
     const created = await prisma.assessment.create({
@@ -1266,7 +1607,7 @@ app.post('/api/assessments', authenticate, requireRole(['qa_controller', 'qa_sup
         sample_name: body.sample_name || 'Random Sampling',
         vendor_id: body.vendor_id,
         vendor_title: body.vendor_title,
-        check_date: parseJalaliOrGregorianDate(body.check_date),
+        check_date: parsedCheckDate,
         fault_id: body.fault_id,
         backend_general: Boolean(body.backend_general),
         is_fraud: isFraud,
@@ -1378,7 +1719,7 @@ app.put('/api/assessments/:id', authenticate, async (req: Request, res: Response
     if (body.team_lead_note !== undefined) updateData.team_lead_note = body.team_lead_note;
     if (body.team_lead_reviewed_at !== undefined) updateData.team_lead_reviewed_at = body.team_lead_reviewed_at;
     if (body.action_taken !== undefined) updateData.action_taken = body.action_taken;
-    if (body.deleted_at !== undefined) updateData.deleted_at = body.deleted_at ? new Date(body.deleted_at) : null;
+    // deleted_at is protected from being written/bypassed via PUT
     if (body.fault_id !== undefined) updateData.fault_id = body.fault_id;
     if (body.is_fraud !== undefined) updateData.is_fraud = Boolean(body.is_fraud);
     if (body.backend_general !== undefined) updateData.backend_general = Boolean(body.backend_general);
@@ -1488,10 +1829,10 @@ app.post('/api/assessments/:id/review', authenticate, requireRole(['team_lead', 
     if (user.role === 'team_lead') {
       const teams = (user.team || '').split('/').map((s) => s.trim()).filter(Boolean);
       const isOwnTeam =
+        (user.team_id && target.agent.team_id === user.team_id) ||
         teams.includes(target.agent.team_name) ||
         target.agent.team_name === user.team ||
-        target.agent.team_lead_id === user.id ||
-        target.agent.team_lead === user.name;
+        target.agent.team_lead_id === user.id;
 
       if (!isOwnTeam) {
         return res.status(403).json({
@@ -1529,8 +1870,8 @@ app.post('/api/assessments/:id/review', authenticate, requireRole(['team_lead', 
   }
 });
 
-// Soft Delete Assessment (Supervisor Only)
-app.delete('/api/assessments/:id', authenticate, requireRole(['qa_supervisor']), async (req: Request, res: Response) => {
+// Soft Delete Assessment (Supervisor, or QA Controller for own created assessment)
+app.delete('/api/assessments/:id', authenticate, requireRole(['qa_controller', 'qa_supervisor']), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const user = req.user!;
@@ -1538,6 +1879,13 @@ app.delete('/api/assessments/:id', authenticate, requireRole(['qa_supervisor']),
     const target = await prisma.assessment.findUnique({ where: { id } });
     if (!target) {
       return res.status(404).json({ success: false, message: 'Assessment not found' });
+    }
+
+    if (!canUserDeleteAssessment(user, target)) {
+      return res.status(403).json({
+        success: false,
+        message: 'شما مجاز به حذف این ارزیابی نیستید (Forbidden)',
+      });
     }
 
     await prisma.assessment.update({
@@ -1606,27 +1954,39 @@ app.get('/api/disputes', authenticate, async (req: Request, res: Response) => {
       where.status = status;
     }
 
-    // Role scoping for disputes
+    // Role scoping for disputes using immutable relationships
     if (user.role === 'agent') {
+      const orConds: any[] = [];
+      if (user.agent_id) orConds.push({ id: user.agent_id });
+      if (user.id) orConds.push({ user_id: user.id });
       where.assessment = {
-        agent: {
-          OR: [
-            { user_id: user.id },
-            { name: user.name },
-            { id: user.agent_id || '' },
-          ],
-        },
+        agent: orConds.length > 0 ? { OR: orConds } : { id: '__NONE__' },
       };
     } else if (user.role === 'team_lead') {
+      const orConds: any[] = [];
+      if (user.team_id) orConds.push({ team_id: user.team_id });
+      if (user.team) orConds.push({ team_name: user.team });
+      if (user.id) orConds.push({ team_lead_id: user.id });
       where.assessment = {
-        agent: {
-          OR: [
-            { team_name: user.team || '' },
-            { team_lead_id: user.id },
-            { team_lead: user.name },
-          ],
-        },
+        agent: orConds.length > 0 ? { OR: orConds } : { id: '__NONE__' },
       };
+    } else if (user.role === 'manager') {
+      if (!user.department) {
+        where.id = '__NONE__';
+      } else {
+        where.assessment = { form_type: user.department };
+      }
+    } else if (user.role === 'qa_controller') {
+      where.assessment = {
+        OR: [
+          { controller_id: user.id },
+          { controller_id: user.username },
+          { agent: { controller_id: user.id } },
+          { agent: { controller: user.username } },
+        ],
+      };
+    } else if (user.role === 'admin') {
+      where.id = '__NONE__';
     }
 
     const disputes = await prisma.dispute.findMany({
@@ -1681,12 +2041,11 @@ app.post('/api/assessments/:id/dispute', authenticate, requireRole(['agent', 'qa
       return res.status(404).json({ success: false, message: 'Assessment not found' });
     }
 
-    // If agent, must be their own assessment
+    // If agent, must be their own assessment (immutable IDs)
     if (user.role === 'agent') {
       const isOwn =
-        assessment.agent.user_id === user.id ||
-        assessment.agent.name === user.name ||
-        assessment.agent_id === user.agent_id;
+        Boolean((user.agent_id && assessment.agent_id === user.agent_id) ||
+        (assessment.agent && assessment.agent.user_id === user.id));
 
       if (!isOwn) {
         return res.status(403).json({
@@ -1855,26 +2214,98 @@ app.put('/api/disputes/:assessmentId/resolve', authenticate, requireRole(['qa_co
 app.get('/api/audit-logs', authenticate, requireRole(['qa_controller', 'qa_supervisor', 'admin']), async (req: Request, res: Response) => {
   try {
     const user = req.user!;
-    const { entity } = req.query;
+    const { entity, action, user_id, search, page, limit, sort_by, sort_dir } = req.query;
     const where: any = {};
 
-    // QA Controllers see their own logs or QA actions
+    // QA Controllers see only logs associated with their own assessments or actions
     if (user.role === 'qa_controller') {
+      const myAssessments = await prisma.assessment.findMany({
+        where: {
+          OR: [
+            { controller_id: user.id },
+            { controller_id: user.username },
+            { agent: { controller_id: user.id } },
+            { agent: { controller: user.username } },
+          ],
+        },
+        select: { id: true },
+      });
+      const myAssessmentIds = myAssessments.map((a) => a.id);
+
       where.OR = [
         { user_id: user.id },
-        { user_role: 'qa_controller' },
-        { entity: 'assessment' },
-        { entity: 'dispute' },
+        ...(myAssessmentIds.length > 0 ? [{ entity: 'assessment', entity_id: { in: myAssessmentIds } }] : []),
+        ...(myAssessmentIds.length > 0 ? [{ entity: 'dispute', entity_id: { in: myAssessmentIds } }] : []),
       ];
     }
     if (entity && typeof entity === 'string' && entity !== 'all') {
       where.entity = entity;
     }
+    if (action && typeof action === 'string' && action !== 'all') {
+      where.action = action;
+    }
+    if (user_id && typeof user_id === 'string' && user_id !== 'all') {
+      where.user_id = user_id;
+    }
+
+    if (search && typeof search === 'string' && search.trim()) {
+      const q = search.trim();
+      const searchOR = [
+        { user_name: { contains: q } },
+        { entity_id: { contains: q } },
+        { field: { contains: q } },
+        { old_value: { contains: q } },
+        { new_value: { contains: q } },
+      ];
+      if (where.OR) {
+        where.AND = [{ OR: where.OR }, { OR: searchOR }];
+        delete where.OR;
+      } else {
+        where.OR = searchOR;
+      }
+    }
+
+    const allowedSortFields = ['created_at', 'action', 'entity'];
+    const sortField = typeof sort_by === 'string' && allowedSortFields.includes(sort_by) ? sort_by : 'created_at';
+    const sortDirection = sort_dir === 'asc' ? 'asc' : 'desc';
+    const orderBy = { [sortField]: sortDirection };
+
+    const total = await prisma.auditLog.count({ where });
+
+    if (page !== undefined) {
+      const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+      const limitNum = Math.max(1, parseInt(String(limit), 10) || 50);
+      const skip = (pageNum - 1) * limitNum;
+      const logs = await prisma.auditLog.findMany({
+        where,
+        orderBy,
+        skip,
+        take: limitNum,
+      });
+
+      const formatted = logs.map((log) => ({
+        ...log,
+        created_at:
+          new Date(log.created_at).toLocaleDateString('fa-IR') +
+          ' ' +
+          new Date(log.created_at).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
+      }));
+
+      return res.json({
+        success: true,
+        count: formatted.length,
+        total,
+        page: pageNum,
+        limit: limitNum,
+        total_pages: Math.ceil(total / limitNum) || 1,
+        data: formatted,
+      });
+    }
 
     const logs = await prisma.auditLog.findMany({
       where,
-      orderBy: { created_at: 'desc' },
-      take: 200,
+      orderBy,
+      take: limit ? parseInt(String(limit), 10) : 200,
     });
 
     const formatted = logs.map((log) => ({
@@ -1885,7 +2316,7 @@ app.get('/api/audit-logs', authenticate, requireRole(['qa_controller', 'qa_super
         new Date(log.created_at).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
     }));
 
-    res.json({ success: true, count: formatted.length, data: formatted });
+    res.json({ success: true, count: formatted.length, total, data: formatted });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -1913,7 +2344,7 @@ app.get('/api/settings', authenticate, async (_req: Request, res: Response) => {
   }
 });
 
-app.put('/api/settings', authenticate, requireRole(['admin']), async (req: Request, res: Response) => {
+app.put('/api/settings', authenticate, requireRole(['admin', 'qa_supervisor']), async (req: Request, res: Response) => {
   try {
     const { settings } = req.body;
     const user = req.user!;
@@ -2065,15 +2496,23 @@ app.get('/api/analytics', authenticate, requireRole(['manager', 'qa_supervisor']
 
     const where: any = { deleted_at: null };
 
-    if (user.role === 'manager' && user.department) {
+    if (user.role === 'manager') {
+      if (!user.department) {
+        return res.status(403).json({
+          success: false,
+          message: 'مدیر بدون انتساب به دپارتمان مجاز به مشاهده تحلیل‌ها نمی‌باشد (Forbidden)',
+        });
+      }
       where.form_type = user.department;
     } else if (department !== 'all') {
       where.form_type = department;
     }
 
+    const agentWhere = getAgentScope(user, { active: true });
+
     const [allAudits, allAgents, settingsRows] = await Promise.all([
       prisma.assessment.findMany({ where }),
-      prisma.agent.findMany({ where: { active: true } }),
+      prisma.agent.findMany({ where: agentWhere }),
       prisma.setting.findMany(),
     ]);
 
@@ -2153,21 +2592,37 @@ app.get('/api/analytics', authenticate, requireRole(['manager', 'qa_supervisor']
 app.get('/api/export/assessments.csv', authenticate, async (req: Request, res: Response) => {
   try {
     const user = req.user!;
-    const where: any = { deleted_at: null };
-
-    if (user.role === 'agent') {
-      where.agent = { OR: [{ user_id: user.id }, { name: user.name }] };
-    } else if (user.role === 'team_lead') {
-      where.agent = { OR: [{ team_name: user.team || '' }, { team_lead_id: user.id }] };
-    } else if (user.role === 'manager' && user.department) {
-      where.form_type = user.department;
+    // Agents & Admins have NO reports permission under PRD
+    if (user.role === 'agent' || user.role === 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'دسترسی دریافت گزارش و خروجی برای نقش شما مجاز نمی‌باشد (Forbidden)',
+      });
     }
+    // Managers without department must fail closed
+    if (user.role === 'manager' && !user.department) {
+      return res.status(403).json({
+        success: false,
+        message: 'مدیر بدون انتساب به دپارتمان مجاز به دریافت گزارش نمی‌باشد (Forbidden)',
+      });
+    }
+
+    const where: any = buildAssessmentFilterWhere(user, req.query);
 
     const assessments = await prisma.assessment.findMany({
       where,
       include: { agent: true },
       orderBy: { check_date: 'desc' },
     });
+
+    const sanitizeCell = (val: any) => {
+      if (val === null || val === undefined) return '';
+      let str = String(val);
+      if (/^[=+\-@\t\r]/.test(str)) {
+        str = "'" + str;
+      }
+      return `"${str.replace(/"/g, '""')}"`;
+    };
 
     const headers = [
       'شناسه',
@@ -2185,18 +2640,18 @@ app.get('/api/export/assessments.csv', authenticate, async (req: Request, res: R
     ];
 
     const rows = assessments.map((a) => [
-      a.id,
-      a.agent?.name || '',
-      a.agent?.source_id || '',
-      a.agent?.team_name || '',
-      a.form_type === 'support' ? 'پشتیبانی' : 'فروش',
-      formatJalaliDate(a.check_date),
-      a.vendor_id || '',
-      `"${(a.vendor_title || '').replace(/"/g, '""')}"`,
+      sanitizeCell(a.id),
+      sanitizeCell(a.agent?.name || ''),
+      sanitizeCell(a.agent?.source_id || ''),
+      sanitizeCell(a.agent?.team_name || ''),
+      sanitizeCell(a.form_type === 'support' ? 'پشتیبانی' : 'فروش'),
+      sanitizeCell(formatJalaliDate(a.check_date)),
+      sanitizeCell(a.vendor_id || ''),
+      sanitizeCell(a.vendor_title || ''),
       a.total_score,
-      a.result,
-      a.controller_id,
-      a.ticket_number || a.phone_number || '',
+      sanitizeCell(a.result),
+      sanitizeCell(a.controller_id),
+      sanitizeCell(a.ticket_number || a.phone_number || ''),
     ]);
 
     const csv = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
@@ -2212,21 +2667,37 @@ app.get('/api/export/assessments.csv', authenticate, async (req: Request, res: R
 app.get('/api/export/assessments.xlsx', authenticate, async (req: Request, res: Response) => {
   try {
     const user = req.user!;
-    const where: any = { deleted_at: null };
-
-    if (user.role === 'agent') {
-      where.agent = { OR: [{ user_id: user.id }, { name: user.name }] };
-    } else if (user.role === 'team_lead') {
-      where.agent = { OR: [{ team_name: user.team || '' }, { team_lead_id: user.id }] };
-    } else if (user.role === 'manager' && user.department) {
-      where.form_type = user.department;
+    // Agents & Admins have NO reports permission under PRD
+    if (user.role === 'agent' || user.role === 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'دسترسی دریافت گزارش و خروجی برای نقش شما مجاز نمی‌باشد (Forbidden)',
+      });
     }
+    // Managers without department must fail closed
+    if (user.role === 'manager' && !user.department) {
+      return res.status(403).json({
+        success: false,
+        message: 'مدیر بدون انتساب به دپارتمان مجاز به دریافت گزارش نمی‌باشد (Forbidden)',
+      });
+    }
+
+    const where: any = buildAssessmentFilterWhere(user, req.query);
 
     const assessments = await prisma.assessment.findMany({
       where,
       include: { agent: true, disputes: true },
       orderBy: { check_date: 'desc' },
     });
+
+    const sanitizeVal = (val: any) => {
+      if (val === null || val === undefined) return '';
+      const str = String(val);
+      if (/^[=+\-@\t\r]/.test(str)) {
+        return "'" + str;
+      }
+      return val;
+    };
 
     const headers = [
       'شناسه ارزیابی',
@@ -2259,21 +2730,21 @@ app.get('/api/export/assessments.xlsx', authenticate, async (req: Request, res: 
         : 'ندارد';
 
       return [
-        a.id,
-        a.agent?.name || '',
-        a.agent?.source_id || '',
-        a.agent?.team_name || '',
-        a.form_type === 'support' ? 'پشتیبانی' : 'فروش',
-        j.jalaliStr,
-        a.check_date.toISOString(),
-        a.vendor_id || '',
-        a.vendor_title || '',
+        sanitizeVal(a.id),
+        sanitizeVal(a.agent?.name || ''),
+        sanitizeVal(a.agent?.source_id || ''),
+        sanitizeVal(a.agent?.team_name || ''),
+        sanitizeVal(a.form_type === 'support' ? 'پشتیبانی' : 'فروش'),
+        sanitizeVal(j.jalaliStr),
+        sanitizeVal(a.check_date.toISOString()),
+        sanitizeVal(a.vendor_id || ''),
+        sanitizeVal(a.vendor_title || ''),
         a.total_score,
-        a.result,
-        a.controller_id,
-        a.ticket_number || a.phone_number || '',
-        a.is_fraud ? 'تقلب (Fraud)' : a.fault_id ? 'دارای خطا' : 'بدون خطا',
-        disputeStatus,
+        sanitizeVal(a.result),
+        sanitizeVal(a.controller_id),
+        sanitizeVal(a.ticket_number || a.phone_number || ''),
+        sanitizeVal(a.is_fraud ? 'تقلب (Fraud)' : a.fault_id ? 'دارای خطا' : 'بدون خطا'),
+        sanitizeVal(disputeStatus),
       ];
     });
 
@@ -2312,11 +2783,30 @@ app.get('/api/export/assessments.xlsx', authenticate, async (req: Request, res: 
 });
 
 // Excel (.xlsx) Export for Monthly Scores
-app.get('/api/export/monthly-scores.xlsx', authenticate, async (_req: Request, res: Response) => {
+app.get('/api/export/monthly-scores.xlsx', authenticate, async (req: Request, res: Response) => {
   try {
+    const user = req.user!;
+    // Agents & Admins have NO reports permission under PRD
+    if (user.role === 'agent' || user.role === 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'دسترسی دریافت گزارش ماهانه برای نقش شما مجاز نمی‌باشد (Forbidden)',
+      });
+    }
+    // Managers without department must fail closed
+    if (user.role === 'manager' && !user.department) {
+      return res.status(403).json({
+        success: false,
+        message: 'مدیر بدون انتساب به دپارتمان مجاز به دریافت گزارش نمی‌باشد (Forbidden)',
+      });
+    }
+
+    const agentWhere = getAgentScope(user, { active: true });
+    const assessmentWhere = getAssessmentScope(user, { deleted_at: null });
+
     const [agents, assessments, settingsRows] = await Promise.all([
-      prisma.agent.findMany({ where: { active: true }, include: { team_lead_user: true } }),
-      prisma.assessment.findMany({ where: { deleted_at: null } }),
+      prisma.agent.findMany({ where: agentWhere, include: { team_lead_user: true } }),
+      prisma.assessment.findMany({ where: assessmentWhere }),
       prisma.setting.findMany(),
     ]);
 
@@ -2562,10 +3052,11 @@ app.post(
 
         let parsedDate: Date;
         try {
-          parsedDate = parseJalaliOrGregorianDate(rawDate || new Date());
-          if (isNaN(parsedDate.getTime())) {
+          const maybeDate = parseJalaliOrGregorianDate(rawDate);
+          if (!maybeDate || isNaN(maybeDate.getTime())) {
             throw new Error('Invalid date');
           }
+          parsedDate = maybeDate;
         } catch {
           errors.push({
             row: rowNum,

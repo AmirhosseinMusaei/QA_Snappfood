@@ -14,8 +14,30 @@ import { LoginModal } from './components/auth/LoginModal.tsx';
 import { toPersianDigits, getCurrentJalaliYear } from './utils/persian.ts';
 
 const AppContent: React.FC = () => {
-  const { activeTab, setActiveTab, loading, error, refreshData, showLoginModal, setShowLoginModal } = useApp();
+  const {
+    authLoading,
+    activeTab,
+    setActiveTab,
+    loading,
+    error,
+    refreshData,
+    showLoginModal,
+    setShowLoginModal,
+  } = useApp();
   const [showBackupModal, setShowBackupModal] = useState(false);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-3 border-sky-600 border-t-transparent rounded-full animate-spin" />
+          <div className="text-xs font-bold text-slate-600 dark:text-slate-400">
+            در حال اعتبارسنجی نشست کاربری اسنپ‌فود...
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors">

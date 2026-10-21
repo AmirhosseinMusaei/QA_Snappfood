@@ -286,10 +286,11 @@ export const TeamLeadDashboard: React.FC = () => {
                         : dateToJalali(a.check_date);
                     return j.year === targetYear && j.month === targetMonth;
                   });
-                  const activeAudits = currentMonthAudits.length > 0 ? currentMonthAudits : agentAudits;
+                  const activeAudits = currentMonthAudits;
                   const scores = activeAudits.map((a) => a.total_score);
                   const frauds = activeAudits.filter((a) => a.is_fraud).length;
-                  const currentScore = scores.length > 0 ? calculateAgentMonthlyScore(scores, frauds) : 92;
+                  const hasAudits = scores.length > 0;
+                  const currentScore = hasAudits ? calculateAgentMonthlyScore(scores, frauds) : null;
 
                   // 3 Month actual history scores:
                   const prev1M = ((targetMonth - 2 + 12) % 12) + 1;
@@ -319,23 +320,25 @@ export const TeamLeadDashboard: React.FC = () => {
                   const m5Avg =
                     prev2Scores.length > 0
                       ? Math.round(prev2Scores.reduce((a, b) => a + b, 0) / prev2Scores.length)
-                      : Math.max(75, currentScore - 4);
+                      : null;
                   const m6Avg =
                     prev1Scores.length > 0
                       ? Math.round(prev1Scores.reduce((a, b) => a + b, 0) / prev1Scores.length)
-                      : Math.max(78, currentScore - 1);
-                  const trendScores = [m5Avg, m6Avg, currentScore];
+                      : null;
+                  const trendScores = [m5Avg ?? currentScore ?? 0, m6Avg ?? currentScore ?? 0, currentScore ?? 0];
 
                   const targetCount =
                     ag.min_monthly_reviews || settings?.min_monthly_reviews_default || 40;
                   const currentCount = activeAudits.length;
                   const progress = Math.min(100, Math.round((currentCount / targetCount) * 100));
 
-                  const badge = formatScoreBadge(currentScore, {
-                    high: settings?.high_quality_threshold,
-                    low: settings?.low_quality_threshold,
-                  });
-                  const isLowScore = currentScore < (settings?.low_quality_threshold ?? 80);
+                  const badge = currentScore !== null
+                    ? formatScoreBadge(currentScore, {
+                        high: settings?.high_quality_threshold,
+                        low: settings?.low_quality_threshold,
+                      })
+                    : { badgeClass: 'bg-slate-100 dark:bg-slate-800 text-slate-500', text: 'فاقد ارزیابی' };
+                  const isLowScore = currentScore !== null && currentScore < (settings?.low_quality_threshold ?? 80);
 
                   return (
                     <tr
@@ -360,13 +363,19 @@ export const TeamLeadDashboard: React.FC = () => {
                       {/* Monthly Score */}
                       <td className="py-3.5 px-3">
                         <div className="flex items-center gap-2">
-                          <span className={`font-mono font-bold px-2.5 py-1 rounded-lg text-xs ${badge.badgeClass}`}>
-                            <span dir="ltr" className="inline-flex items-center gap-1">
-                              <span>{toPersianDigits(currentScore)}</span>
-                              <span className="opacity-60">/</span>
-                              <span>۱۰۰</span>
+                          {currentScore !== null ? (
+                            <span className={`font-mono font-bold px-2.5 py-1 rounded-lg text-xs ${badge.badgeClass}`}>
+                              <span dir="ltr" className="inline-flex items-center gap-1">
+                                <span>{toPersianDigits(currentScore)}</span>
+                                <span className="opacity-60">/</span>
+                                <span>۱۰۰</span>
+                              </span>
                             </span>
-                          </span>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">
+                              فاقد ارزیابی
+                            </span>
+                          )}
                         </div>
                       </td>
 

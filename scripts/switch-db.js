@@ -25,32 +25,31 @@ Usage:
   process.exit(1);
 }
 
-const schemaPath = path.join(rootDir, 'prisma', 'schema.prisma');
-const schemaContent = fs.readFileSync(schemaPath, 'utf8');
+const mainSchemaPath = path.join(rootDir, 'prisma', 'schema.prisma');
+const sqlServerSchemaPath = path.join(rootDir, 'prisma', 'schema.sqlserver.prisma');
 
-let updatedContent;
 if (target === 'sqlserver') {
-  updatedContent = schemaContent.replace(
-    /provider\s*=\s*"sqlite"/g,
-    'provider = "sqlserver"'
-  );
-  console.log('✅ Updated prisma/schema.prisma datasource provider to "sqlserver".');
-  console.log('📌 Next steps for SQL Server:');
+  if (fs.existsSync(sqlServerSchemaPath)) {
+    fs.copyFileSync(sqlServerSchemaPath, mainSchemaPath);
+  } else {
+    const content = fs.readFileSync(mainSchemaPath, 'utf8');
+    fs.writeFileSync(mainSchemaPath, content.replace(/provider\s*=\s*"sqlite"/g, 'provider = "sqlserver"'), 'utf8');
+  }
+  console.log('✅ Reconciled prisma/schema.prisma for Microsoft SQL Server (Enterprise Production).');
+  console.log('📌 Next steps for SQL Server Enterprise:');
   console.log('   1. Set DATABASE_URL in .env:');
-  console.log('      DATABASE_URL="sqlserver://localhost:1433;database=snappfood_qa;user=sa;password=YourPassword;encrypt=true;trustServerCertificate=true"');
-  console.log('   2. Run: npx prisma db push');
-  console.log('   3. Run: npm run db:seed');
+  console.log('      DATABASE_URL="sqlserver://<HOST>:1433;database=snappfood_qa;user=sa;password=<PASSWORD>;encrypt=true;trustServerCertificate=true"');
+  console.log('   2. Run: npx prisma generate');
+  console.log('   3. Run: npx prisma db push (or npx prisma migrate deploy)');
+  console.log('   4. Run: npm run db:seed (optional demo baseline)');
 } else {
-  updatedContent = schemaContent.replace(
-    /provider\s*=\s*"sqlserver"/g,
-    'provider = "sqlite"'
-  );
-  console.log('✅ Updated prisma/schema.prisma datasource provider to "sqlite".');
-  console.log('📌 Next steps for SQLite:');
-  console.log('   1. Set DATABASE_URL in .env: DATABASE_URL="file:./dev.db"');
-  console.log('   2. Run: npx prisma db push');
-  console.log('   3. Run: npm run db:seed');
+  const content = fs.readFileSync(mainSchemaPath, 'utf8');
+  fs.writeFileSync(mainSchemaPath, content.replace(/provider\s*=\s*"sqlserver"/g, 'provider = "sqlite"'), 'utf8');
+  console.log('✅ Updated prisma/schema.prisma datasource provider to "sqlite" (Development).');
+  console.log('📌 Next steps for SQLite Local:');
+  console.log('   1. Set DATABASE_URL in .env: DATABASE_URL="file:./prisma/dev.db"');
+  console.log('   2. Run: npx prisma generate');
+  console.log('   3. Run: npx prisma db push');
 }
 
-fs.writeFileSync(schemaPath, updatedContent, 'utf8');
-console.log('🎉 Database provider switched successfully!');
+console.log('🎉 Database configuration updated successfully!');

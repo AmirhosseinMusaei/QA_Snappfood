@@ -1,4 +1,4 @@
-import { UserRole, DepartmentType } from '../../types/index.ts';
+import type { UserRole, DepartmentType } from '../../types/index.ts';
 
 export interface AuthUser {
   id: string;

@@ -8,6 +8,8 @@ import {
   calculateSupportTotal,
   calculateSalesTotal,
   calculateAgentMonthlyScore,
+  calculateAgentMonthlyScoreDetailed,
+  validateRubricDefinition,
   validateScores,
   getAllRubricItems,
   SUPPORT_RUBRIC,
@@ -171,4 +173,105 @@ test('Scoring functions support custom/versioned rubrics', () => {
 
   const validation = validateScores(customRubric, defaultScoresV2);
   assert.equal(validation.isValid, true);
+});
+
+test('PRD Example 1: Sales totals [100, 0] with one fraud => 40', () => {
+  const result = calculateAgentMonthlyScoreDetailed(
+    [{ total_score: 100, is_fraud: false }, { total_score: 0, is_fraud: true }],
+    'sales'
+  );
+  assert.equal(result.hasAssessments, true);
+  assert.equal(result.assessmentCount, 2);
+  assert.equal(result.rawAverage, 50);
+  assert.equal(result.fraudCount, 1);
+  assert.equal(result.finalMonthlyScore, 40); // 50 - 10 = 40
+});
+
+test('PRD Example 2: Sales totals [100, 0, 0] with two frauds => 0', () => {
+  const result = calculateAgentMonthlyScoreDetailed(
+    [
+      { total_score: 100, is_fraud: false },
+      { total_score: 0, is_fraud: true },
+      { total_score: 0, is_fraud: true },
+    ],
+    'sales'
+  );
+  assert.equal(result.hasAssessments, true);
+  assert.equal(result.assessmentCount, 3);
+  assert.equal(result.fraudCount, 2);
+  assert.equal(result.finalMonthlyScore, 0); // >1 fraud = 0
+});
+
+test('Support versus Sales fraud behavior: Support does not deduct -10 at monthly level', () => {
+  const supportResult = calculateAgentMonthlyScoreDetailed(
+    [{ total_score: 100, is_fraud: false }, { total_score: 0, is_fraud: true }],
+    'support'
+  );
+  assert.equal(supportResult.rawAverage, 50);
+  assert.equal(supportResult.finalMonthlyScore, 50); // no extra monthly penalty for Support
+
+  const salesResult = calculateAgentMonthlyScoreDetailed(
+    [{ total_score: 100, is_fraud: false }, { total_score: 0, is_fraud: true }],
+    'sales'
+  );
+  assert.equal(salesResult.rawAverage, 50);
+  assert.equal(salesResult.finalMonthlyScore, 40); // 50 - 10 = 40
+});
+
+test('Empty month returns hasAssessments: false, null scores, and no fabricated 92', () => {
+  const result = calculateAgentMonthlyScoreDetailed([], 'sales');
+  assert.equal(result.hasAssessments, false);
+  assert.equal(result.assessmentCount, 0);
+  assert.equal(result.rawAverage, null);
+  assert.equal(result.finalMonthlyScore, null);
+  assert.equal(result.status, 'no_assessments');
+});
+
+test('Mistake scoring validates non-negative integer and supports custom settings table', () => {
+  // Negative mistakes throws
+  assert.throws(() => calculateSalesMistakeScore(-1), /cannot be negative/);
+  // Fractional mistakes throws
+  assert.throws(() => calculateSalesMistakeScore(1.5), /must be an integer/);
+
+  // Custom table from settings
+  const customTable = { 0: 30, 1: 20, 2: 10, 3: 0 };
+  assert.equal(calculateSalesMistakeScore(0, customTable), 30);
+  assert.equal(calculateSalesMistakeScore(1, customTable), 20);
+  assert.equal(calculateSalesMistakeScore(2, customTable), 10);
+  assert.equal(calculateSalesMistakeScore(3, customTable), 0);
+});
+
+test('validateRubricDefinition validates Support (100) and Sales (70) rubrics recursively', () => {
+  // Standard Support rubric (100 pts)
+  const supRes = validateRubricDefinition('support', SUPPORT_RUBRIC);
+  assert.equal(supRes.isValid, true);
+  assert.equal(supRes.totalSectionPoints, 100);
+
+  // Standard Sales rubric (70 pts criteria + 30 mistake = 100)
+  const salesRes = validateRubricDefinition('sales', SALES_RUBRIC);
+  assert.equal(salesRes.isValid, true);
+  assert.equal(salesRes.totalSectionPoints, 70);
+
+  // Sales rubric invalid if section criteria don't match section maxPoints
+  const invalidSales = JSON.parse(JSON.stringify(SALES_RUBRIC));
+  invalidSales[0].maxPoints = 50; // criteria sum is 29, section is 50
+  const invalidRes = validateRubricDefinition('sales', invalidSales);
+  assert.equal(invalidRes.isValid, false);
+  assert.ok(invalidRes.error?.includes('با سقف نمره بخش'));
+
+  // Sales rubric with balanced criteria but wrong total (e.g. 80 instead of 70)
+  const wrongTotalSales = JSON.parse(JSON.stringify(SALES_RUBRIC));
+  wrongTotalSales[0].maxPoints = 39;
+  wrongTotalSales[0].criteria[0].maxPoints = 15;
+  wrongTotalSales[0].criteria[0].items[0].maxPoints = 11;
+  const wrongTotalRes = validateRubricDefinition('sales', wrongTotalSales);
+  assert.equal(wrongTotalRes.isValid, false);
+  assert.ok(wrongTotalRes.error?.includes('۷۰'));
+
+  // Duplicate ID detection
+  const duplicateRubric = JSON.parse(JSON.stringify(SUPPORT_RUBRIC));
+  duplicateRubric[0].criteria[0].items[1].id = duplicateRubric[0].criteria[0].items[0].id;
+  const dupRes = validateRubricDefinition('support', duplicateRubric);
+  assert.equal(dupRes.isValid, false);
+  assert.ok(dupRes.error?.includes('تکراری'));
 });

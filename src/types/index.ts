@@ -48,6 +48,8 @@ export interface User {
   role: UserRole;
   department?: DepartmentType;
   team?: string;
+  team_id?: string;
+  agent_id?: string;
   avatar?: string;
   active: boolean;
 }

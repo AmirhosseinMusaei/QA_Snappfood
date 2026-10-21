@@ -1,4 +1,4 @@
-import { Agent, Team, Fault, Assessment, AuditLog, PortalSettings, User, ProblemItem } from '../types/index.ts';
+import type { Agent, Team, Fault, Assessment, AuditLog, PortalSettings, User, ProblemItem } from '../types/index.ts';
 
 export const DEFAULT_SETTINGS: PortalSettings = {
   dispute_window_days: 3,

@@ -38,13 +38,14 @@ export interface AppContextType {
   error: string | null;
   refreshData: () => Promise<void>;
 
+  authLoading: boolean;
   assessments: Assessment[];
   allAssessments: Assessment[];
   agents: Agent[];
   faults: Fault[];
   teams: Team[];
-  controllers: typeof SEED_CONTROLLERS;
-  teamLeads: typeof SEED_TEAM_LEADS;
+  controllers: { id: string; name: string; display_name: string; username?: string; role?: string; target?: number }[];
+  teamLeads: { id: string; name: string; username?: string; team?: string; department?: string }[];
   auditLogs: AuditLog[];
   settings: PortalSettings;
   problems: ProblemItem[];

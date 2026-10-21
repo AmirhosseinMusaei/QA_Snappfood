@@ -2,7 +2,7 @@
  * Utility for aggregating historical assessment data into weekly and monthly team performance metrics.
  */
 import type { Assessment, Agent, DepartmentType } from '../types/index.ts';
-import { toEnglishDigits, toPersianDigits, JALALI_MONTHS } from './persian.ts';
+import { toEnglishDigits, toPersianDigits, JALALI_MONTHS, dateToJalali } from './persian.ts';
 
 export interface TrendDataPoint {
   key: string;
@@ -41,32 +41,51 @@ export interface FilterOptions {
 }
 
 /**
- * Parses Jalali date string (e.g., '۱۴۰۳/۰۷/۲۲' or '1403/07/22' or ISO string)
+ * Parses Jalali date string (e.g., '۱۴۰۵/۰۷/۲۷' or '1405/07/27' or ISO string '2026-10-19T00:00:00.000Z')
+ * Accurately projects ISO UTC timestamps into Tehran business Jalali date (e.g. 2026-10-19 -> 1405/07/27).
+ * Rejects invalid dates by returning null.
  */
 export function parseJalaliDate(dateStr: string): { year: number; month: number; day: number } | null {
   if (!dateStr) return null;
 
-  const clean = toEnglishDigits(dateStr).trim();
-  const parts = clean.split(/[/-]/);
+  const clean = toEnglishDigits(String(dateStr)).trim();
+  if (!clean) return null;
 
+  // Check if it's an ISO date string or contains T/Z
+  if (clean.includes('T') || clean.includes('Z')) {
+    const dateObj = new Date(clean);
+    if (isNaN(dateObj.getTime())) return null;
+    const info = dateToJalali(dateObj);
+    return { year: info.year, month: info.month, day: info.day };
+  }
+
+  // Check if it's standard YYYY/MM/DD or YYYY-MM-DD
+  const parts = clean.split(/[/-]/);
   if (parts.length >= 3) {
     const y = parseInt(parts[0], 10);
     const m = parseInt(parts[1], 10);
     const d = parseInt(parts[2], 10);
     if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
-      return { year: y, month: m, day: d };
+      if (y < 1900) {
+        // Jalali date: validate month and day bounds
+        if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+        if (m > 6 && d > 30) return null;
+        return { year: y, month: m, day: d };
+      } else {
+        // Gregorian YYYY-MM-DD date
+        if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+        const dateObj = new Date(Date.UTC(y, m - 1, d));
+        if (isNaN(dateObj.getTime())) return null;
+        const info = dateToJalali(dateObj);
+        return { year: info.year, month: info.month, day: info.day };
+      }
     }
   }
 
-  // Fallback if ISO date is passed
-  const dateObj = new Date(dateStr);
+  const dateObj = new Date(clean);
   if (!isNaN(dateObj.getTime())) {
-    // Gregorian to approximate Jalali
-    const gy = dateObj.getFullYear();
-    const gm = dateObj.getMonth() + 1;
-    const gd = dateObj.getDate();
-    // Simplified conversion fallback
-    return { year: 1403, month: gm >= 9 ? gm - 5 : gm + 7, day: gd };
+    const info = dateToJalali(dateObj);
+    return { year: info.year, month: info.month, day: info.day };
   }
 
   return null;

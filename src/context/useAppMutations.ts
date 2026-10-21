@@ -9,6 +9,7 @@ import {
   DepartmentType,
   User,
 } from '../types/index.ts';
+import { validateRubricDefinition } from '../utils/scoring.ts';
 
 interface UseAppMutationsProps {
   currentUser: User;
@@ -391,11 +392,11 @@ export function useAppMutations({
     formType: DepartmentType,
     sections: RubricSection[]
   ): Promise<{ success: boolean; error?: string }> => {
-    const totalMax = sections.reduce((sum, s) => sum + s.maxPoints, 0);
-    if (totalMax !== 100) {
+    const validation = validateRubricDefinition(formType, sections);
+    if (!validation.isValid) {
       return {
         success: false,
-        error: `مجموع سقف نمرات بخش‌ها برابر ${totalMax} است. مجموع کل نمرات باید دقیقاً ۱۰۰ باشد.`,
+        error: validation.error,
       };
     }
 
@@ -407,12 +408,13 @@ export function useAppMutations({
       });
       const data = await res.json();
       if (data.success) {
+        const canonical = data.canonicalRubric || sections;
         if (formType === 'support') {
-          setSupportRubric(sections);
+          setSupportRubric(canonical);
           setSupportFormVersion(data.version || supportFormVersion + 1);
           if (data.formId) setSupportFormId(data.formId);
         } else {
-          setSalesRubric(sections);
+          setSalesRubric(canonical);
           setSalesFormVersion(data.version || salesFormVersion + 1);
           if (data.formId) setSalesFormId(data.formId);
         }

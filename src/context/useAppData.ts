@@ -9,28 +9,23 @@ import {
   ProblemItem,
   RubricSection,
 } from '../types/index.ts';
-import {
-  DEFAULT_SETTINGS,
-  SEED_TEAMS,
-  SEED_AGENTS,
-  SEED_ASSESSMENTS,
-  SEED_FAULTS,
-  SEED_PROBLEMS,
-  SEED_AUDIT_LOGS,
-} from '../data/seedData.ts';
+import { DEFAULT_SETTINGS } from '../data/seedData.ts';
 import { SUPPORT_RUBRIC, SALES_RUBRIC } from '../utils/scoring.ts';
 
 export function useAppData() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [assessments, setAssessments] = useState<Assessment[]>(SEED_ASSESSMENTS);
-  const [agents, setAgents] = useState<Agent[]>(SEED_AGENTS);
-  const [teams, setTeams] = useState<Team[]>(SEED_TEAMS);
-  const [faults, setFaults] = useState<Fault[]>(SEED_FAULTS);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(SEED_AUDIT_LOGS);
+  // Initialize with empty arrays - never fall back to seed business data
+  const [assessments, setAssessments] = useState<Assessment[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [faults, setFaults] = useState<Fault[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [settings, setSettings] = useState<PortalSettings>(DEFAULT_SETTINGS);
-  const [problems, setProblems] = useState<ProblemItem[]>(SEED_PROBLEMS);
+  const [problems, setProblems] = useState<ProblemItem[]>([]);
+  const [controllers, setControllers] = useState<{ id: string; name: string; display_name: string; username?: string; role?: string; target?: number }[]>([]);
+  const [teamLeads, setTeamLeads] = useState<{ id: string; name: string; username?: string; team?: string; department?: string }[]>([]);
 
   const [supportRubric, setSupportRubric] = useState<RubricSection[]>(SUPPORT_RUBRIC);
   const [salesRubric, setSalesRubric] = useState<RubricSection[]>(SALES_RUBRIC);
@@ -38,6 +33,17 @@ export function useAppData() {
   const [salesFormVersion, setSalesFormVersion] = useState<number>(1);
   const [supportFormId, setSupportFormId] = useState<string>('form-support-v1');
   const [salesFormId, setSalesFormId] = useState<string>('form-sales-v1');
+
+  const clearData = useCallback(() => {
+    setAssessments([]);
+    setAgents([]);
+    setTeams([]);
+    setFaults([]);
+    setAuditLogs([]);
+    setProblems([]);
+    setControllers([]);
+    setTeamLeads([]);
+  }, []);
 
   const refreshAuditLogs = useCallback(async () => {
     try {
@@ -53,7 +59,7 @@ export function useAppData() {
     }
   }, []);
 
-  const refreshData = useCallback(async () => {
+  const refreshData = useCallback(async (onUnauthorized?: () => void) => {
     try {
       setLoading(true);
       setError(null);
@@ -67,6 +73,7 @@ export function useAppData() {
         settingsRes,
         problemsRes,
         auditLogsRes,
+        staffRes,
       ] = await Promise.all([
         fetch('/api/assessments?include_deleted=true'),
         fetch('/api/agents'),
@@ -76,7 +83,19 @@ export function useAppData() {
         fetch('/api/settings'),
         fetch('/api/problems'),
         fetch('/api/audit-logs'),
+        fetch('/api/staff'),
       ]);
+
+      // If unauthorized on any primary route, clear sensitive data immediately
+      if (
+        assessmentsRes.status === 401 ||
+        agentsRes.status === 401 ||
+        teamsRes.status === 401
+      ) {
+        clearData();
+        if (onUnauthorized) onUnauthorized();
+        return;
+      }
 
       if (assessmentsRes.ok) {
         const j = await assessmentsRes.json();
@@ -117,13 +136,31 @@ export function useAppData() {
         const j = await auditLogsRes.json();
         if (j.success && Array.isArray(j.data)) setAuditLogs(j.data);
       }
+      if (staffRes.ok) {
+        const j = await staffRes.json();
+        if (j.success) {
+          if (Array.isArray(j.controllers)) {
+            setControllers(
+              j.controllers.map((c: any) => ({
+                id: c.id,
+                name: c.name,
+                display_name: c.display_name || c.name,
+                username: c.username,
+                role: c.role,
+                target: c.target || 200,
+              }))
+            );
+          }
+          if (Array.isArray(j.teamLeads)) setTeamLeads(j.teamLeads);
+        }
+      }
     } catch (err: any) {
       console.error('Error connecting to backend REST API:', err);
       setError('خطا در ارتباط با سرور پایگاه داده. لطفاً ارتباط را بررسی کنید.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [clearData]);
 
   return {
     loading,
@@ -136,6 +173,10 @@ export function useAppData() {
     setAgents,
     teams,
     setTeams,
+    controllers,
+    setControllers,
+    teamLeads,
+    setTeamLeads,
     faults,
     setFaults,
     auditLogs,
@@ -158,5 +199,6 @@ export function useAppData() {
     setSalesFormId,
     refreshAuditLogs,
     refreshData,
+    clearData,
   };
 }

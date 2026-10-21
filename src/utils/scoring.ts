@@ -313,15 +313,42 @@ export const SALES_RUBRIC: RubricSection[] = [
 
 /**
  * Calculate mistake points for Sales form
+ * Default PRD Schedule:
  * 0 mistakes = 30 pts
  * 1 mistake = 25 pts (-5)
  * 2 mistakes = 20 pts (-10)
  * 3 mistakes = 15 pts (-15)
  * 4 mistakes = 10 pts (-20)
  * >= 5 mistakes = 0 pts
+ *
+ * Reads configurable mistake table from validated settings if provided.
+ * Rejects negative and fractional mistake counts.
  */
-export function calculateSalesMistakeScore(mistakes: number): number {
-  if (mistakes <= 0) return 30;
+export function calculateSalesMistakeScore(
+  mistakes: number,
+  customTable?: Record<number | string, number> | null
+): number {
+  if (mistakes < 0) {
+    throw new Error('تعداد اشتباهات نمی‌تواند منفی باشد (Mistake count cannot be negative)');
+  }
+  if (!Number.isInteger(mistakes)) {
+    throw new Error('تعداد اشتباهات باید عدد صحیح باشد (Mistake count must be an integer)');
+  }
+
+  if (customTable && typeof customTable === 'object') {
+    if (mistakes in customTable) {
+      return Number(customTable[mistakes]);
+    }
+    if (String(mistakes) in customTable) {
+      return Number(customTable[String(mistakes)]);
+    }
+    if (mistakes >= 5) {
+      if (5 in customTable) return Number(customTable[5]);
+      if ('5' in customTable) return Number(customTable['5']);
+    }
+  }
+
+  if (mistakes === 0) return 30;
   if (mistakes === 1) return 25;
   if (mistakes === 2) return 20;
   if (mistakes === 3) return 15;
@@ -507,23 +534,28 @@ export function calculateSupportTotal(
     }
   });
 
-  const total = Math.min(100, Math.max(0, softSkill + knowledge));
+  const total = Math.max(0, softSkill + knowledge);
   return { total, softSkill, knowledge };
 }
 
 /**
  * Calculate total score for Sales form.
  * Validates that every item has an explicit recorded score within [0, maxPoints].
+ * Rejects negative and fractional mistake counts.
+ * Uses configurable mistake table from settings if provided.
  */
 export function calculateSalesTotal(
   scores: Record<string, number>,
   mistakes: number,
   isFraud: boolean,
   isCriticalFault: boolean,
-  rubric: RubricSection[] = SALES_RUBRIC
+  rubric: RubricSection[] = SALES_RUBRIC,
+  customMistakeTable?: Record<number | string, number> | null
 ): { total: number; softSkill: number; script: number; mistakeScore: number } {
+  const mistakeScore = calculateSalesMistakeScore(mistakes, customMistakeTable);
+
   if (isFraud || isCriticalFault) {
-    return { total: 0, softSkill: 0, script: 0, mistakeScore: 0 };
+    return { total: 0, softSkill: 0, script: 0, mistakeScore };
   }
 
   const validation = validateScores(rubric, scores);
@@ -548,31 +580,323 @@ export function calculateSalesTotal(
     }
   });
 
-  const mistakeScore = calculateSalesMistakeScore(mistakes);
-  const total = Math.min(100, Math.max(0, softSkill + script + mistakeScore));
+  const total = Math.max(0, softSkill + script + mistakeScore);
   return { total, softSkill, script, mistakeScore };
 }
 
+export interface RubricValidationResult {
+  isValid: boolean;
+  error?: string;
+  totalSectionPoints: number;
+  expectedSectionPoints: number;
+}
+
 /**
- * Calculate agent monthly score based on prompt rules:
- * - Agent monthly score = average of all assessments in that Jalali month.
- * - If 1 fraud in month, subtract 10 from the final monthly average.
- * - If > 1 fraud in month, final monthly score becomes 0.
+ * Recursively validates a full rubric definition:
+ * - Checks uniqueness of section, criterion, and item IDs across the entire rubric.
+ * - Checks non-empty titles.
+ * - Checks that item maxPoints are positive integers (> 0).
+ * - Checks that sum of item maxPoints equals criterion maxPoints.
+ * - Checks that sum of criterion maxPoints equals section maxPoints.
+ * - Checks final section sum:
+ *     Support sections must sum to exactly 100.
+ *     Sales sections must sum to exactly 70 (plus 30 mistake pool = 100 total form points).
+ * - Does not clamp scores to hide invalid totals.
+ */
+export function validateRubricDefinition(
+  formType: 'support' | 'sales',
+  sections: RubricSection[]
+): RubricValidationResult {
+  if (!Array.isArray(sections) || sections.length === 0) {
+    return {
+      isValid: false,
+      error: 'ساختار رابریک نامعتبر است یا فاقد بخش می‌باشد',
+      totalSectionPoints: 0,
+      expectedSectionPoints: formType === 'support' ? 100 : 70,
+    };
+  }
+
+  const seenIds = new Set<string>();
+  let totalSectionPoints = 0;
+  const expectedSectionPoints = formType === 'support' ? 100 : 70;
+
+  for (const [secIdx, section] of sections.entries()) {
+    if (!section.id || typeof section.id !== 'string' || !section.id.trim()) {
+      return {
+        isValid: false,
+        error: `شناسه بخش شماره ${secIdx + 1} نامعتبر یا خالی است`,
+        totalSectionPoints,
+        expectedSectionPoints,
+      };
+    }
+    if (seenIds.has(section.id)) {
+      return {
+        isValid: false,
+        error: `شناسه بخش "${section.id}" تکراری است (Duplicate Section ID)`,
+        totalSectionPoints,
+        expectedSectionPoints,
+      };
+    }
+    seenIds.add(section.id);
+
+    if (!section.title || typeof section.title !== 'string' || !section.title.trim()) {
+      return {
+        isValid: false,
+        error: `عنوان بخش "${section.id}" خالی است`,
+        totalSectionPoints,
+        expectedSectionPoints,
+      };
+    }
+
+    if (!Array.isArray(section.criteria) || section.criteria.length === 0) {
+      return {
+        isValid: false,
+        error: `بخش "${section.title}" فاقد هرگونه معیار است`,
+        totalSectionPoints,
+        expectedSectionPoints,
+      };
+    }
+
+    let criterionSum = 0;
+    for (const [critIdx, crit] of section.criteria.entries()) {
+      if (!crit.id || typeof crit.id !== 'string' || !crit.id.trim()) {
+        return {
+          isValid: false,
+          error: `شناسه معیار شماره ${critIdx + 1} در بخش "${section.title}" خالی است`,
+          totalSectionPoints,
+          expectedSectionPoints,
+        };
+      }
+      if (seenIds.has(crit.id)) {
+        return {
+          isValid: false,
+          error: `شناسه معیار "${crit.id}" تکراری است (Duplicate Criterion ID)`,
+          totalSectionPoints,
+          expectedSectionPoints,
+        };
+      }
+      seenIds.add(crit.id);
+
+      if (!crit.title || typeof crit.title !== 'string' || !crit.title.trim()) {
+        return {
+          isValid: false,
+          error: `عنوان معیار "${crit.id}" در بخش "${section.title}" خالی است`,
+          totalSectionPoints,
+          expectedSectionPoints,
+        };
+      }
+
+      if (!Array.isArray(crit.items) || crit.items.length === 0) {
+        return {
+          isValid: false,
+          error: `معیار "${crit.title}" در بخش "${section.title}" فاقد آیتم‌های نمره‌دهی است`,
+          totalSectionPoints,
+          expectedSectionPoints,
+        };
+      }
+
+      let itemSum = 0;
+      for (const [itemIdx, item] of crit.items.entries()) {
+        if (!item.id || typeof item.id !== 'string' || !item.id.trim()) {
+          return {
+            isValid: false,
+            error: `شناسه آیتم شماره ${itemIdx + 1} در معیار "${crit.title}" خالی است`,
+            totalSectionPoints,
+            expectedSectionPoints,
+          };
+        }
+        if (seenIds.has(item.id)) {
+          return {
+            isValid: false,
+            error: `شناسه آیتم "${item.id}" تکراری است (Duplicate Item ID)`,
+            totalSectionPoints,
+            expectedSectionPoints,
+          };
+        }
+        seenIds.add(item.id);
+
+        if (!item.title || typeof item.title !== 'string' || !item.title.trim()) {
+          return {
+            isValid: false,
+            error: `عنوان آیتم "${item.id}" در معیار "${crit.title}" خالی است`,
+            totalSectionPoints,
+            expectedSectionPoints,
+          };
+        }
+
+        const maxP = Number(item.maxPoints);
+        if (isNaN(maxP) || maxP <= 0 || !Number.isInteger(maxP)) {
+          return {
+            isValid: false,
+            error: `سقف نمره آیتم "${item.title}" باید عدد صحیح مثبت باشد (مقدار فعلی: ${item.maxPoints})`,
+            totalSectionPoints,
+            expectedSectionPoints,
+          };
+        }
+        itemSum += maxP;
+      }
+
+      const critMaxP = Number(crit.maxPoints);
+      if (itemSum !== critMaxP) {
+        return {
+          isValid: false,
+          error: `مجموع نمرات آیتم‌های معیار "${crit.title}" (${itemSum}) با سقف نمره معیار (${critMaxP}) برابر نیست`,
+          totalSectionPoints,
+          expectedSectionPoints,
+        };
+      }
+      criterionSum += critMaxP;
+    }
+
+    const secMaxP = Number(section.maxPoints);
+    if (criterionSum !== secMaxP) {
+      return {
+        isValid: false,
+        error: `مجموع نمرات معیارهای بخش "${section.title}" (${criterionSum}) با سقف نمره بخش (${secMaxP}) برابر نیست`,
+        totalSectionPoints,
+        expectedSectionPoints,
+      };
+    }
+
+    totalSectionPoints += secMaxP;
+  }
+
+  if (totalSectionPoints !== expectedSectionPoints) {
+    const unitName = formType === 'support' ? 'پشتیبانی' : 'فروش';
+    const explanation =
+      formType === 'sales'
+        ? ` (بخش‌های مهارتی و اسکریپت فروش باید ۷۰ باشد و ۳۰ امتیاز باقی‌مانده از جدول اشتباهات محاسبه می‌شود)`
+        : '';
+    return {
+      isValid: false,
+      error: `مجموع سقف نمرات بخش‌های فرم ${unitName} برابر ${totalSectionPoints} است در حالی که باید دقیقاً ${expectedSectionPoints} باشد${explanation}`,
+      totalSectionPoints,
+      expectedSectionPoints,
+    };
+  }
+
+  return {
+    isValid: true,
+    totalSectionPoints,
+    expectedSectionPoints,
+  };
+}
+
+export interface AgentMonthlyScoreResult {
+  hasAssessments: boolean;
+  assessmentCount: number;
+  scores: number[];
+  rawAverage: number | null;
+  fraudCount: number;
+  finalMonthlyScore: number | null;
+  department: 'support' | 'sales';
+  status: 'no_assessments' | 'high_quality' | 'standard' | 'low_quality';
+}
+
+/**
+ * Authoritative Monthly Calculation Service:
+ * - Computes raw average and final monthly score for an agent in a selected month.
+ * - Excludes soft-deleted assessments.
+ * - When an agent has 0 assessments, returns hasAssessments: false and finalMonthlyScore: null.
+ *   Never fabricates arbitrary scores like 92.
+ * - For Sales:
+ *     Calculates the mean of all totals in that agent's selected month (including 0-score fraud cases):
+ *     - 0 fraud: uses the mean.
+ *     - Exactly 1 fraud: subtracts 10, minimum zero.
+ *     - >1 fraud: final monthly score is 0.
+ *     Examples:
+ *       Sales [100, 0] with 1 fraud => mean is 50, final is 40.
+ *       Sales [100, 0, 0] with 2 frauds => final is 0.
+ * - For Support:
+ *     Calculates the mean of all totals in that agent's selected month.
+ *     Does not apply an extra monthly fraud deduction (fraud assessments already evaluate to 0).
+ */
+export function calculateAgentMonthlyScoreDetailed(
+  assessmentList: Array<{ total_score: number; is_fraud?: boolean; deleted_at?: any }>,
+  department: 'support' | 'sales',
+  thresholds?: { high?: number; low?: number }
+): AgentMonthlyScoreResult {
+  const activeList = assessmentList.filter((a) => !a.deleted_at);
+  if (activeList.length === 0) {
+    return {
+      hasAssessments: false,
+      assessmentCount: 0,
+      scores: [],
+      rawAverage: null,
+      fraudCount: 0,
+      finalMonthlyScore: null,
+      department,
+      status: 'no_assessments',
+    };
+  }
+
+  const scores = activeList.map((a) => a.total_score);
+  const fraudCount = activeList.filter((a) => Boolean(a.is_fraud)).length;
+  const rawSum = scores.reduce((sum, s) => sum + s, 0);
+  const rawAverage = Math.round((rawSum / scores.length) * 10) / 10;
+
+  let finalMonthlyScore: number;
+
+  if (department === 'sales') {
+    if (fraudCount === 0) {
+      finalMonthlyScore = rawAverage;
+    } else if (fraudCount === 1) {
+      finalMonthlyScore = Math.max(0, Math.round((rawAverage - 10) * 10) / 10);
+    } else {
+      finalMonthlyScore = 0;
+    }
+  } else {
+    // Support monthly rule: raw average (fraud assessments already zeroed)
+    finalMonthlyScore = rawAverage;
+  }
+
+  const highThreshold = thresholds?.high ?? 95;
+  const lowThreshold = thresholds?.low ?? 80;
+
+  let status: 'high_quality' | 'standard' | 'low_quality';
+  if (finalMonthlyScore >= highThreshold) {
+    status = 'high_quality';
+  } else if (finalMonthlyScore < lowThreshold) {
+    status = 'low_quality';
+  } else {
+    status = 'standard';
+  }
+
+  return {
+    hasAssessments: true,
+    assessmentCount: scores.length,
+    scores,
+    rawAverage,
+    fraudCount,
+    finalMonthlyScore,
+    department,
+    status,
+  };
+}
+
+/**
+ * Backward-compatible monthly score calculator.
+ * Applies the -10 / 0 fraud deduction specifically to Sales, while preserving Support behavior.
  */
 export function calculateAgentMonthlyScore(
   assessmentScores: number[],
-  fraudCountInMonth: number
+  fraudCountInMonth: number,
+  department: 'support' | 'sales' = 'sales'
 ): number {
   if (assessmentScores.length === 0) return 0;
-  if (fraudCountInMonth > 1) return 0;
 
   const rawSum = assessmentScores.reduce((acc, curr) => acc + curr, 0);
   const rawAverage = rawSum / assessmentScores.length;
 
-  let finalAverage = rawAverage;
-  if (fraudCountInMonth === 1) {
-    finalAverage = Math.max(0, finalAverage - 10);
+  if (department === 'sales') {
+    if (fraudCountInMonth > 1) return 0;
+    let finalAverage = rawAverage;
+    if (fraudCountInMonth === 1) {
+      finalAverage = Math.max(0, finalAverage - 10);
+    }
+    return Math.round(finalAverage * 10) / 10;
   }
 
-  return Math.round(finalAverage * 10) / 10;
+  // Support department
+  return Math.round(rawAverage * 10) / 10;
 }

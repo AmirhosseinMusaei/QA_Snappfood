@@ -99,25 +99,43 @@ export function jalaliToGregorianUTC(jy: number, jm: number, jd: number): Date {
 /**
  * Universal date parser: parses Gregorian ISO strings, Date objects, epoch numbers,
  * or Jalali strings e.g. "۱۴۰۳/۰۷/۲۲" or "1403/07/22"
+ * Returns null if the input is missing, empty, or cannot be parsed as a valid date.
  */
-export function parseJalaliOrGregorianDate(input: any): Date {
-  if (!input) return new Date();
-  if (input instanceof Date && !isNaN(input.getTime())) return input;
+export function parseJalaliOrGregorianDate(input: any): Date | null {
+  if (input === undefined || input === null || input === '') return null;
+  if (input instanceof Date) {
+    return isNaN(input.getTime()) ? null : input;
+  }
   const str = toEnglishDigits(String(input)).trim();
-  if (
-    str.includes('/') ||
-    (str.includes('-') &&
-      !str.includes('T') &&
-      str.split('-')[0].length === 4 &&
-      parseInt(str.split('-')[0], 10) < 1900)
-  ) {
+  if (!str) return null;
+
+  // Check if it's an ISO date string (contains T or Z)
+  if (str.includes('T') || str.includes('Z')) {
+    const parsed = new Date(str);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  // Check if it's a date string like YYYY/MM/DD or YYYY-MM-DD
+  if (str.includes('/') || (str.includes('-') && str.split('-')[0].length === 4)) {
     const parts = str.split(/[/-]/).map((s) => parseInt(s, 10));
     if (parts.length >= 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
-      return jalaliToGregorianUTC(parts[0], parts[1], parts[2]);
+      const [y, m, d] = parts;
+      if (y < 1900) {
+        // Jalali date: validate month and day bounds
+        if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+        if (m > 6 && d > 30) return null;
+        return jalaliToGregorianUTC(y, m, d);
+      } else {
+        // Gregorian YYYY-MM-DD
+        if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+        const parsed = new Date(Date.UTC(y, m - 1, d));
+        return isNaN(parsed.getTime()) ? null : parsed;
+      }
     }
   }
+
   const parsed = new Date(str);
-  return isNaN(parsed.getTime()) ? new Date() : parsed;
+  return isNaN(parsed.getTime()) ? null : parsed;
 }
 
 export interface DerivedJalaliDate {
@@ -125,24 +143,30 @@ export interface DerivedJalaliDate {
   month: number;
   day: number;
   monthName: string;
-  jalaliStr: string; // "1403/07/22"
-  persianJalaliStr: string; // "۱۴۰۳/۰۷/۲۲"
+  jalaliStr: string; // "1405/07/27"
+  persianJalaliStr: string; // "۱۴۰۵/۰۷/۲۷"
   isoUtc: string;
 }
+
+/**
+ * Standard business reporting timezone for Snappfood QA Portal: Asia/Tehran (UTC+3:30)
+ * All timestamps stored in UTC are consistently projected to official Tehran business calendar dates.
+ */
+export const REPORTING_TIMEZONE = 'Asia/Tehran';
 
 /**
  * Derive Jalali date, month, and formatted display strings on the fly from a Gregorian UTC DateTime
  */
 export function dateToJalali(dateInput: any): DerivedJalaliDate {
-  const d = parseJalaliOrGregorianDate(dateInput);
+  const d = dateInput instanceof Date ? dateInput : (parseJalaliOrGregorianDate(dateInput) || new Date());
   try {
     const parts = new Intl.DateTimeFormat('en-US-u-ca-persian', {
       year: 'numeric',
       month: 'numeric',
       day: 'numeric',
-      timeZone: 'UTC',
+      timeZone: REPORTING_TIMEZONE,
     }).formatToParts(d);
-    let year = 1403;
+    let year = 1405;
     let month = 7;
     let day = 1;
     for (const p of parts) {
@@ -164,7 +188,7 @@ export function dateToJalali(dateInput: any): DerivedJalaliDate {
       isoUtc: d.toISOString(),
     };
   } catch {
-    // Fallback to algorithmic conversion
+    // Algorithmic fallback
     const gy = d.getUTCFullYear();
     const gm = d.getUTCMonth() + 1;
     const gd = d.getUTCDate();
@@ -182,6 +206,7 @@ export function dateToJalali(dateInput: any): DerivedJalaliDate {
     };
   }
 }
+
 
 /**
  * Format a date into Persian Jalali date string
@@ -259,7 +284,7 @@ export function isWithinDisputeWindow(dateOrIso: any, daysAllowed: number = 3): 
   try {
     if (!dateOrIso) return false;
     const checkDate = parseJalaliOrGregorianDate(dateOrIso);
-    if (isNaN(checkDate.getTime())) return true;
+    if (!checkDate || isNaN(checkDate.getTime())) return true;
     const now = Date.now();
     const diffMs = now - checkDate.getTime();
     const diffDays = diffMs / (1000 * 60 * 60 * 24);
@@ -268,4 +293,23 @@ export function isWithinDisputeWindow(dateOrIso: any, daysAllowed: number = 3): 
   } catch {
     return false;
   }
+}
+
+/**
+ * Returns UTC Date range bounds for a full Jalali month in Asia/Tehran timezone.
+ * Used for database date queries.
+ */
+export function getJalaliMonthUtcBounds(year: number, month: number): { startUtc: Date; endUtc: Date } {
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const nextYear = month === 12 ? year + 1 : year;
+
+  // Day 1 of month in Gregorian UTC
+  const d1 = jalaliToGregorianUTC(year, month, 1);
+  // Asia/Tehran is UTC+3:30 -> midnight in Tehran corresponds to 20:30 UTC on the previous Gregorian day
+  const startUtc = new Date(d1.getTime() - 3.5 * 60 * 60 * 1000);
+
+  const d2 = jalaliToGregorianUTC(nextYear, nextMonth, 1);
+  const endUtc = new Date(d2.getTime() - 3.5 * 60 * 60 * 1000);
+
+  return { startUtc, endUtc };
 }

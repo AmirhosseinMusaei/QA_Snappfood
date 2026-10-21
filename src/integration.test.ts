@@ -1,6 +1,7 @@
 import test, { describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { Server } from 'http';
+import bcrypt from 'bcryptjs';
 import { app, prisma } from '../server.ts';
 import { getDefaultSupportScores, getDefaultSalesScores } from './utils/scoring.ts';
 
@@ -49,8 +50,8 @@ describe('1. Authentication & Session Security', () => {
     const data = await res.json();
     assert.equal(data.success, true);
     assert.equal(data.user.username, 'admin');
-    assert.equal(data.user.role, 'admin');
-    assert.ok(data.token, 'Expected session token in body');
+    // Browser session token should not be exposed in JSON body when using HttpOnly cookie
+    assert.equal(data.token, undefined, 'Session token should not be returned in login JSON body');
 
     const setCookie = res.headers.get('set-cookie');
     assert.ok(setCookie?.includes('HttpOnly'), 'Cookie must be HttpOnly');
@@ -469,8 +470,16 @@ describe('5. QA Controller Role (meysam - QA Controller)', () => {
     }
   });
 
-  test('QA Controller CANNOT delete assessment (403 Forbidden)', async () => {
+  test('QA Controller CAN delete their own assessment (200 OK)', async () => {
     const res = await fetch(`${baseUrl}/api/assessments/${ownCreatedAssessmentId}`, {
+      method: 'DELETE',
+      headers: { Cookie: controllerCookie },
+    });
+    assert.equal(res.status, 200);
+  });
+
+  test('QA Controller CANNOT delete another controller assessment (403 Forbidden)', async () => {
+    const res = await fetch(`${baseUrl}/api/assessments/${otherControllerAssessmentId}`, {
       method: 'DELETE',
       headers: { Cookie: controllerCookie },
     });
@@ -882,3 +891,290 @@ describe('8. Scoring UX, Data Integrity, Versioning & Server Recomputation', () 
     assert.equal(histData.version, originalVersion);
   });
 });
+
+describe('9. Stage 2 Dedicated Verification: Cross-Role Scoping, Exports, Replay & Production Security', () => {
+  let agentCookie: string;
+  let otherAgentCookie: string;
+  let controllerCookie: string;
+  let otherControllerCookie: string;
+  let managerCookie: string;
+  let supervisorCookie: string;
+  let adminCookie: string;
+  let orphanManagerCookie: string;
+
+  let mahyaAssessmentId: string;
+  let otherAssessmentId: string;
+  let meysamAssessmentId: string;
+  let otherControllerAssessmentId: string;
+
+  before(async () => {
+    agentCookie = await loginUser('mahya');
+    otherAgentCookie = await loginUser('sara');
+    controllerCookie = await loginUser('meysam');
+    otherControllerCookie = await loginUser('asal');
+    managerCookie = await loginUser('mgr_sales');
+    supervisorCookie = await loginUser('supervisor');
+    adminCookie = await loginUser('admin');
+
+    // Create an orphan manager without department for testing fail-closed
+    const orphanUsername = 'mgr_nodept';
+    const existing = await prisma.user.findUnique({ where: { username: orphanUsername } });
+    if (!existing) {
+      await prisma.user.create({
+        data: {
+          username: orphanUsername,
+          password: bcrypt.hashSync('snappfood123', 10),
+          name: 'مدیر بدون واحد',
+          role: 'manager',
+          department: null,
+          active: true,
+        },
+      });
+    }
+    orphanManagerCookie = await loginUser(orphanUsername);
+
+    // Identify assessments
+    const mahyaAss = await prisma.assessment.findFirst({
+      where: { agent_id: 'agent-3718', deleted_at: null },
+    });
+    mahyaAssessmentId = mahyaAss!.id;
+
+    const otherAss = await prisma.assessment.findFirst({
+      where: { agent_id: { not: 'agent-3718' }, deleted_at: null },
+    });
+    otherAssessmentId = otherAss!.id;
+
+    const meysamAss = await prisma.assessment.findFirst({
+      where: { OR: [{ controller_id: 'meysam' }, { controller_id: 'usr-meysam' }], deleted_at: null },
+    });
+    meysamAssessmentId = meysamAss!.id;
+
+    const otherCtrlAss = await prisma.assessment.findFirst({
+      where: { controller_id: { notIn: ['meysam', 'usr-meysam'] }, deleted_at: null },
+    });
+    otherControllerAssessmentId = otherCtrlAss!.id;
+  });
+
+  // 1. GET /api/assessments/:id Scoping
+  test('Agent CAN access their own assessment by ID (200 OK)', async () => {
+    const res = await fetch(`${baseUrl}/api/assessments/${mahyaAssessmentId}`, {
+      headers: { Cookie: agentCookie },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.success, true);
+    assert.equal(body.data.id, mahyaAssessmentId);
+  });
+
+  test('Agent CANNOT access another agent assessment by ID (403 Forbidden)', async () => {
+    const res = await fetch(`${baseUrl}/api/assessments/${otherAssessmentId}`, {
+      headers: { Cookie: agentCookie },
+    });
+    assert.equal(res.status, 403);
+    const body = await res.json();
+    assert.equal(body.success, false);
+  });
+
+  test('Admin CANNOT access single assessment detail by ID (403 Forbidden)', async () => {
+    const res = await fetch(`${baseUrl}/api/assessments/${mahyaAssessmentId}`, {
+      headers: { Cookie: adminCookie },
+    });
+    assert.equal(res.status, 403);
+  });
+
+  // 2. Export Permissions
+  test('Agent CANNOT export assessments to CSV (403 Forbidden)', async () => {
+    const res = await fetch(`${baseUrl}/api/export/assessments.csv`, {
+      headers: { Cookie: agentCookie },
+    });
+    assert.equal(res.status, 403);
+  });
+
+  test('Agent CANNOT export assessments to XLSX (403 Forbidden)', async () => {
+    const res = await fetch(`${baseUrl}/api/export/assessments.xlsx`, {
+      headers: { Cookie: agentCookie },
+    });
+    assert.equal(res.status, 403);
+  });
+
+  test('Agent CANNOT export monthly scores to XLSX (403 Forbidden)', async () => {
+    const res = await fetch(`${baseUrl}/api/export/monthly-scores.xlsx`, {
+      headers: { Cookie: agentCookie },
+    });
+    assert.equal(res.status, 403);
+  });
+
+  test('Admin CANNOT export assessments to CSV or XLSX (403 Forbidden)', async () => {
+    const csvRes = await fetch(`${baseUrl}/api/export/assessments.csv`, {
+      headers: { Cookie: adminCookie },
+    });
+    assert.equal(csvRes.status, 403);
+
+    const xlsxRes = await fetch(`${baseUrl}/api/export/monthly-scores.xlsx`, {
+      headers: { Cookie: adminCookie },
+    });
+    assert.equal(xlsxRes.status, 403);
+  });
+
+  test('QA Controller CAN export assessments CSV scoped to assigned agents/own assessments', async () => {
+    const res = await fetch(`${baseUrl}/api/export/assessments.csv`, {
+      headers: { Cookie: controllerCookie },
+    });
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.ok(text.includes('شناسه'), 'CSV should contain Persian headers');
+  });
+
+  // 3. Manager Without Department Fails Closed
+  test('Manager without department returns 0 assessments in GET /api/assessments (fail-closed)', async () => {
+    const res = await fetch(`${baseUrl}/api/assessments`, {
+      headers: { Cookie: orphanManagerCookie },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.data.length, 0, 'Manager without department must fail closed to 0 records');
+  });
+
+  test('Manager without department is rejected from analytics with 403 Forbidden', async () => {
+    const res = await fetch(`${baseUrl}/api/analytics`, {
+      headers: { Cookie: orphanManagerCookie },
+    });
+    assert.equal(res.status, 403);
+  });
+
+  test('Manager without department is rejected from CSV export with 403 Forbidden', async () => {
+    const res = await fetch(`${baseUrl}/api/export/assessments.csv`, {
+      headers: { Cookie: orphanManagerCookie },
+    });
+    assert.equal(res.status, 403);
+  });
+
+  test('Manager without department is rejected from monthly-scores.xlsx with 403 Forbidden', async () => {
+    const res = await fetch(`${baseUrl}/api/export/monthly-scores.xlsx`, {
+      headers: { Cookie: orphanManagerCookie },
+    });
+    assert.equal(res.status, 403);
+  });
+
+  // 4. Audit Log Scoping for QA Controllers
+  test('QA Controller sees only audit logs associated with their own assessments or actions', async () => {
+    const res = await fetch(`${baseUrl}/api/audit-logs`, {
+      headers: { Cookie: controllerCookie },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.success, true);
+    // Every log returned must either be authored by meysam or associated with meysam's assessments
+    for (const log of body.data) {
+      if (log.user_id !== 'usr-meysam' && log.user_name !== 'میثم کاظمی') {
+        assert.ok(
+          log.entity === 'assessment' || log.entity === 'dispute',
+          'QA controller must only see audit logs of assessment/dispute on their own items'
+        );
+      }
+    }
+  });
+
+  // 5. Session Revocation & Logout Replay Prevention
+  test('Session is revoked upon logout and replaying old session cookie returns 401 Unauthorized', async () => {
+    // Log in temporary user
+    const resLogin = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'sara', password: 'snappfood123' }),
+    });
+    assert.equal(resLogin.status, 200);
+    const rawCookie = resLogin.headers.get('set-cookie')!;
+    const cookieMatch = rawCookie.match(/snappfood_session=[^;]+/);
+    const replayCookie = cookieMatch![0];
+
+    // Verify session works before logout
+    const preCheck = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { Cookie: replayCookie },
+    });
+    const preCheckBody = await preCheck.json();
+    assert.equal(preCheckBody.authenticated, true);
+
+    // Call logout
+    const logoutRes = await fetch(`${baseUrl}/api/auth/logout`, {
+      method: 'POST',
+      headers: { Cookie: replayCookie },
+    });
+    assert.equal(logoutRes.status, 200);
+
+    // Replay old cookie on protected endpoint
+    const postCheck = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { Cookie: replayCookie },
+    });
+    const postCheckBody = await postCheck.json();
+    assert.equal(postCheckBody.authenticated, false, 'Revoked session must not authenticate');
+
+    const protectedRes = await fetch(`${baseUrl}/api/assessments`, {
+      headers: { Cookie: replayCookie },
+    });
+    assert.equal(protectedRes.status, 401, 'Protected endpoint must reject revoked token with 401');
+  });
+
+  // 6. Production Dev-Header Rejection
+  test('Unauthenticated request with X-Dev-Role header is rejected with 401 in test/prod', async () => {
+    const res = await fetch(`${baseUrl}/api/users`, {
+      headers: {
+        'Accept': 'application/json',
+        'X-Dev-Role': 'admin',
+      },
+    });
+    assert.equal(res.status, 401, 'Dev header must not bypass authentication when DEV_ROLE_SWITCH is disabled');
+  });
+
+  // 7. Corporate SSO Fail-Closed
+  test('Corporate SSO fails closed with 503 and informative message', async () => {
+    const res = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'admin',
+        ssoToken: 'sample-dummy-sso-token-xyz',
+        provider: 'sso',
+      }),
+    });
+    assert.equal(res.status, 503);
+    const body = await res.json();
+    assert.equal(body.success, false);
+    assert.ok(body.message.includes('SSO'));
+  });
+
+  // 8. Prevent Deletion/Restore Permission Bypass through Writable deleted_at Fields
+  test('PUT /api/assessments/:id ignores deleted_at in body and does not soft-delete assessment', async () => {
+    const testDate = new Date().toISOString();
+    const res = await fetch(`${baseUrl}/api/assessments/${meysamAssessmentId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: controllerCookie },
+      body: JSON.stringify({
+        deleted_at: testDate,
+        result_comment: 'تست جلوگیری از بای‌پَس فیلد deleted_at',
+      }),
+    });
+    assert.equal(res.status, 200);
+
+    // Verify assessment in database still has deleted_at === null
+    const checkDb = await prisma.assessment.findUnique({
+      where: { id: meysamAssessmentId },
+    });
+    assert.equal(checkDb?.deleted_at, null, 'deleted_at must NOT be updated via PUT');
+  });
+
+  // 9. Staff endpoint returns authorized controllers and team leads
+  test('GET /api/staff returns authorized controllers and team leads from database', async () => {
+    const res = await fetch(`${baseUrl}/api/staff`, {
+      headers: { Cookie: controllerCookie },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.success, true);
+    assert.ok(Array.isArray(body.controllers));
+    assert.ok(Array.isArray(body.teamLeads));
+    assert.ok(body.controllers.length >= 2, 'Expected controllers in staff directory');
+    assert.ok(body.teamLeads.length >= 2, 'Expected team leads in staff directory');
+  });
+});
+

@@ -70,28 +70,30 @@ export const AgentDashboard: React.FC = () => {
 
   // Current Jalali month audits
   const currentMonthAudits = useMemo(() => {
-    const list = agentAudits.filter((a) => {
+    return agentAudits.filter((a) => {
       const j =
         a.check_date_year && a.check_date_month_num
           ? { year: a.check_date_year, month: a.check_date_month_num }
           : dateToJalali(a.check_date);
       return j.year === targetYear && j.month === targetMonth;
     });
-    return list.length > 0 ? list : agentAudits;
   }, [agentAudits, targetYear, targetMonth]);
 
   const currentMonthScores = currentMonthAudits.map((a) => a.total_score);
   const currentMonthFrauds = currentMonthAudits.filter((a) => a.is_fraud).length;
 
-  const currentMonthAvg = calculateAgentMonthlyScore(
-    currentMonthScores,
-    currentMonthFrauds
-  );
+  const currentMonthAvg = useMemo(() => {
+    if (currentMonthScores.length === 0) return null;
+    return calculateAgentMonthlyScore(
+      currentMonthScores,
+      currentMonthFrauds
+    );
+  }, [currentMonthScores, currentMonthFrauds]);
 
   // 3-Month Rolling Average (derived mathematically from Jalali calendar)
   const threeMonthAudits = useMemo(() => {
     const targetVal = targetYear * 12 + targetMonth;
-    const list = agentAudits.filter((a) => {
+    return agentAudits.filter((a) => {
       const j =
         a.check_date_year && a.check_date_month_num
           ? { year: a.check_date_year, month: a.check_date_month_num }
@@ -99,11 +101,10 @@ export const AgentDashboard: React.FC = () => {
       const val = j.year * 12 + j.month;
       return val > targetVal - 3 && val <= targetVal;
     });
-    return list.length > 0 ? list : agentAudits;
   }, [agentAudits, targetYear, targetMonth]);
 
   const threeMonthAvg = useMemo(() => {
-    if (threeMonthAudits.length === 0) return currentMonthAvg || 92;
+    if (threeMonthAudits.length === 0) return currentMonthAvg;
     const scores = threeMonthAudits.map((a) => a.total_score);
     return Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10;
   }, [threeMonthAudits, currentMonthAvg]);
@@ -223,8 +224,8 @@ export const AgentDashboard: React.FC = () => {
         scores.length > 0
           ? calculateAgentMonthlyScore(scores, frauds)
           : isCurrent
-          ? currentMonthAvg || 92
-          : 90;
+          ? currentMonthAvg
+          : null;
 
       result.push({
         month: `${mName} ${toPersianDigits(y)}${isCurrent ? ' (جاری)' : ''}`,
@@ -250,7 +251,9 @@ export const AgentDashboard: React.FC = () => {
     );
   }, [agentAudits, searchQuery]);
 
-  const scoreBadge = formatScoreBadge(currentMonthAvg);
+  const scoreBadge = currentMonthAvg !== null
+    ? formatScoreBadge(currentMonthAvg)
+    : { badgeClass: 'bg-slate-100 dark:bg-slate-800 text-slate-500', text: 'فاقد ارزیابی' };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -282,10 +285,10 @@ export const AgentDashboard: React.FC = () => {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {/* Current Jalali Month Score with Fraud penalty */}
           <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800 text-right">
-            <div className="text-[11px] text-slate-400">معدل ماه جاری (مهر)</div>
+            <div className="text-[11px] text-slate-400">معدل ماه جاری ({JALALI_MONTHS[targetMonth - 1] || 'ماه جاری'})</div>
             <div className="flex items-baseline gap-1 mt-1">
               <span className="font-mono text-2xl font-bold text-slate-900 dark:text-white">
-                {toPersianDigits(currentMonthAvg)}
+                {currentMonthAvg !== null ? toPersianDigits(currentMonthAvg) : '-'}
               </span>
               <span className="text-[11px] text-slate-400">/ ۱۰۰</span>
             </div>
@@ -302,11 +305,11 @@ export const AgentDashboard: React.FC = () => {
             <div className="text-[11px] text-slate-400">میانگین ۳ ماهه (Rolling)</div>
             <div className="flex items-baseline gap-1 mt-1">
               <span className="font-mono text-2xl font-bold text-sky-600 dark:text-sky-400">
-                {toPersianDigits(threeMonthAvg)}
+                {threeMonthAvg !== null ? toPersianDigits(threeMonthAvg) : '-'}
               </span>
               <span className="text-[11px] text-slate-400">/ ۱۰۰</span>
             </div>
-            <div className="text-[10px] text-slate-500 mt-1">مرداد، شهریور، مهر</div>
+            <div className="text-[10px] text-slate-500 mt-1">پایش ۳ ماهه اخیر</div>
           </div>
 
           {/* Quota Progress vs min_monthly_reviews (e.g. 28/40) */}
@@ -413,9 +416,15 @@ export const AgentDashboard: React.FC = () => {
                 </div>
 
                 <div className="text-left font-mono font-bold">
-                  <span className={`px-2.5 py-1 rounded-xl text-sm ${formatScoreBadge(m.score).badgeClass}`}>
-                    {toPersianDigits(m.score)}
-                  </span>
+                  {m.score !== null ? (
+                    <span className={`px-2.5 py-1 rounded-xl text-sm ${formatScoreBadge(m.score).badgeClass}`}>
+                      {toPersianDigits(m.score)}
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-1 rounded-xl text-xs text-slate-400 bg-slate-100 dark:bg-slate-800">
+                      -
+                    </span>
+                  )}
                 </div>
               </div>
             ))}

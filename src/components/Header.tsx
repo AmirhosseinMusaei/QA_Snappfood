@@ -51,9 +51,8 @@ export const Header: React.FC<{ onOpenBackupModal: () => void }> = ({ onOpenBack
     setShowLoginModal,
   } = useApp();
 
-  const isDevRoleSwitch =
-    import.meta.env.VITE_DEV_ROLE_SWITCH === 'true' ||
-    (import.meta.env.DEV && import.meta.env.VITE_DEV_ROLE_SWITCH !== 'false');
+  // Permit DEV_ROLE_SWITCH only in explicitly configured development
+  const isDevRoleSwitch = import.meta.env.VITE_DEV_ROLE_SWITCH === 'true';
 
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
